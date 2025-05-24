@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: chat_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: chat_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - chat_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:latest
+    container_name: chat_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - chat_mongo_data:/data/db
+    restart: unless-stopped
+
+  redis:
+    image: redis:latest
+    container_name: chat_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - chat_redis_data:/data
+    restart: unless-stopped
+
+  nats:
+    image: nats:latest
+    container_name: chat_nats
+    ports:
+      - "4222:4222" # Client port
+      - "6222:6222" # Routing port
+      - "8222:8222" # Monitoring port
+    restart: unless-stopped
+
+volumes:
+  chat_postgres_data:
+  chat_mongo_data:
+  chat_redis_data:
