@@ -30,4 +30,8 @@ class ApiConstants {
   
   // WebSocket URL
   static String get wsUrl => 'ws://${_host}:8080/ws';
+  
+  // 其他API相关常量
+  static const int connectionTimeout = 10000; // 10秒
+  static const int receiveTimeout = 30000; // 30秒
 } 

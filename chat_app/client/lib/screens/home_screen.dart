@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../models/chat.dart';
 import '../utils/app_routes.dart';
+import '../utils/mock_websocket.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,17 +17,30 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   bool _isLoading = false;
+  MockWebSocketService? _mockWebSocketService;
 
   @override
   void initState() {
     super.initState();
     _loadChats();
+    
+    // 延迟一点启动模拟服务，确保Provider已经完成初始化
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startMockService();
+    });
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _mockWebSocketService?.stopMockService();
     super.dispose();
+  }
+  
+  void _startMockService() {
+    // 创建并启动模拟WebSocket服务
+    _mockWebSocketService = MockWebSocketService(context);
+    _mockWebSocketService!.startMockService();
   }
 
   Future<void> _loadChats() async {
@@ -130,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: const Text('添加联系人'),
                   onTap: () {
                     Navigator.of(context).pop();
-                    Navigator.of(context).pushNamed(AppRoutes.addContact);
+                    Navigator.of(context).pushNamed(AppRoutes.contacts);
                   },
                 ),
                 ListTile(

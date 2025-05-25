@@ -14,4 +14,6 @@ class AppRoutes {
   static const String addContact = '/add-contact';
   static const String createGroup = '/create-group';
   static const String groupInfo = '/group-info';
+  static const String friendRequests = '/friend-requests';
+  static const String changePassword = '/change-password';
 } 

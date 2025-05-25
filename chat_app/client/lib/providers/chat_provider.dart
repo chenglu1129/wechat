@@ -8,6 +8,15 @@ import '../models/message.dart';
 import '../models/chat.dart';
 import '../utils/api_constants.dart';
 
+// 定义WebSocket消息类型
+enum WebSocketMessageType {
+  message,
+  userStatus,
+  typing,
+  readReceipt,
+  system,
+}
+
 class ChatProvider extends ChangeNotifier {
   final List<Chat> _chats = [];
   final Map<String, List<Message>> _messages = {};
@@ -16,6 +25,9 @@ class ChatProvider extends ChangeNotifier {
   String? _currentChatId;
   bool _isLoading = false;
   String? _error;
+  
+  // 联系人在线状态变化回调
+  Function(int userId, bool isOnline)? onUserStatusChanged;
   
   List<Chat> get chats => [..._chats];
   List<Message> get currentMessages => _currentChatId != null ? [...?_messages[_currentChatId]] : [];
@@ -35,8 +47,31 @@ class ChatProvider extends ChangeNotifier {
     // 监听消息
     _subscription = _channel?.stream.listen(
       (data) {
-        final message = Message.fromJson(json.decode(data));
-        _handleIncomingMessage(message);
+        try {
+          final jsonData = json.decode(data);
+          final messageType = _parseWebSocketMessageType(jsonData['type'] ?? 'message');
+          
+          switch (messageType) {
+            case WebSocketMessageType.message:
+              final message = Message.fromJson(jsonData);
+              _handleIncomingMessage(message);
+              break;
+            case WebSocketMessageType.userStatus:
+              _handleUserStatusChange(jsonData);
+              break;
+            case WebSocketMessageType.typing:
+              _handleTypingStatus(jsonData);
+              break;
+            case WebSocketMessageType.readReceipt:
+              _handleReadReceipt(jsonData);
+              break;
+            case WebSocketMessageType.system:
+              _handleSystemMessage(jsonData);
+              break;
+          }
+        } catch (e) {
+          print('处理WebSocket消息错误: $e');
+        }
       },
       onError: (error) {
         _setError('WebSocket连接错误: $error');
@@ -45,6 +80,23 @@ class ChatProvider extends ChangeNotifier {
         // 连接关闭，可以尝试重新连接
       },
     );
+  }
+  
+  // 解析WebSocket消息类型
+  WebSocketMessageType _parseWebSocketMessageType(String type) {
+    switch (type) {
+      case 'user_status':
+        return WebSocketMessageType.userStatus;
+      case 'typing':
+        return WebSocketMessageType.typing;
+      case 'read_receipt':
+        return WebSocketMessageType.readReceipt;
+      case 'system':
+        return WebSocketMessageType.system;
+      case 'message':
+      default:
+        return WebSocketMessageType.message;
+    }
   }
   
   // 断开WebSocket连接
@@ -73,6 +125,42 @@ class ChatProvider extends ChangeNotifier {
     _updateChatList(chatId, message);
     
     notifyListeners();
+  }
+  
+  // 处理用户状态变化
+  void _handleUserStatusChange(Map<String, dynamic> data) {
+    final userId = data['user_id'];
+    final isOnline = data['is_online'] ?? false;
+    
+    if (userId != null) {
+      // 通知联系人状态变化
+      onUserStatusChanged?.call(int.parse(userId.toString()), isOnline);
+      
+      // 更新聊天列表中的用户状态
+      for (int i = 0; i < _chats.length; i++) {
+        final chat = _chats[i];
+        if (chat.type == ChatType.private && chat.id == 'private_$userId') {
+          _chats[i] = chat.copyWith(isOnline: isOnline);
+          notifyListeners();
+          break;
+        }
+      }
+    }
+  }
+  
+  // 处理正在输入状态
+  void _handleTypingStatus(Map<String, dynamic> data) {
+    // 实现正在输入状态的处理
+  }
+  
+  // 处理已读回执
+  void _handleReadReceipt(Map<String, dynamic> data) {
+    // 实现已读回执的处理
+  }
+  
+  // 处理系统消息
+  void _handleSystemMessage(Map<String, dynamic> data) {
+    // 实现系统消息的处理
   }
   
   // 更新聊天列表
@@ -242,6 +330,16 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
   }
   
+  // 发送"正在输入"状态
+  void sendTypingStatus(String token, String receiverId) {
+    if (_channel != null) {
+      _channel!.sink.add(json.encode({
+        'type': 'typing',
+        'receiver_id': receiverId,
+      }));
+    }
+  }
+  
   // 设置加载状态
   void _setLoading(bool value) {
     _isLoading = value;
@@ -255,7 +353,7 @@ class ChatProvider extends ChangeNotifier {
   }
   
   // 清除错误信息
-  void clearError() {
+  void _clearError() {
     _error = null;
     notifyListeners();
   }

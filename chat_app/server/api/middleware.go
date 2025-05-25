@@ -43,7 +43,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		// 将用户ID添加到请求上下文
-		ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+		ctx := context.WithValue(r.Context(), utils.UserIDKey, claims.UserID)
 
 		// 使用更新后的上下文调用下一个处理器
 		next.ServeHTTP(w, r.WithContext(ctx))

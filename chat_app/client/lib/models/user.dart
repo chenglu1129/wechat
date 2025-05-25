@@ -15,13 +15,18 @@ class User {
   
   // 从JSON创建用户
   factory User.fromJson(Map<String, dynamic> json) {
-    return User(
-      id: json['id'],
-      username: json['username'],
-      email: json['email'],
-      avatarUrl: json['avatar_url'],
-      isOnline: json['is_online'] ?? false,
-    );
+    try {
+      return User(
+        id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
+        username: json['username'] ?? '未知用户',
+        email: json['email'] ?? 'unknown@example.com',
+        avatarUrl: json['avatar_url'] ?? json['avatarUrl'],
+        isOnline: json['is_online'] ?? json['isOnline'] ?? false,
+      );
+    } catch (e) {
+      // 如果解析失败，抛出异常让调用者处理
+      throw FormatException('无法解析用户数据: $e');
+    }
   }
   
   // 转换为JSON

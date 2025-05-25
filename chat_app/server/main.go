@@ -104,9 +104,26 @@ func main() {
 	userService := services.NewUserService(userRepo, contactRepo)
 	authHandler := api.NewAuthHandler(userService)
 
+	// 创建联系人处理器
+	contactHandler := api.NewContactHandler(userService)
+
 	// 认证路由
 	mux.HandleFunc("/auth/register", authHandler.Register)
 	mux.HandleFunc("/auth/login", authHandler.Login)
+
+	// 联系人路由
+	mux.HandleFunc("/contacts", func(w http.ResponseWriter, r *http.Request) {
+		api.AuthMiddleware(http.HandlerFunc(contactHandler.GetContacts)).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/contacts/add", func(w http.ResponseWriter, r *http.Request) {
+		api.AuthMiddleware(http.HandlerFunc(contactHandler.AddContact)).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/contacts/remove", func(w http.ResponseWriter, r *http.Request) {
+		api.AuthMiddleware(http.HandlerFunc(contactHandler.RemoveContact)).ServeHTTP(w, r)
+	})
+	mux.HandleFunc("/users/search", func(w http.ResponseWriter, r *http.Request) {
+		api.AuthMiddleware(http.HandlerFunc(contactHandler.SearchUsers)).ServeHTTP(w, r)
+	})
 
 	// WebSocket路由
 	mux.HandleFunc("/ws", wsHandler.HandleWebSocket)

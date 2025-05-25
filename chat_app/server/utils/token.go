@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -14,6 +16,14 @@ type Claims struct {
 	UserID int `json:"user_id"`
 	jwt.RegisteredClaims
 }
+
+// 上下文键
+type contextKey string
+
+const (
+	// UserIDKey 用户ID上下文键
+	UserIDKey contextKey = "user_id"
+)
 
 // GenerateToken 生成JWT令牌
 func GenerateToken(userID int) (string, error) {
@@ -59,4 +69,14 @@ func ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	return nil, jwt.ErrSignatureInvalid
+}
+
+// GetUserIDFromRequest 从请求中获取用户ID
+func GetUserIDFromRequest(r *http.Request) (int, error) {
+	// 从上下文中获取用户ID
+	userID, ok := r.Context().Value(UserIDKey).(int)
+	if !ok {
+		return 0, errors.New("未授权：上下文中没有用户ID")
+	}
+	return userID, nil
 }
