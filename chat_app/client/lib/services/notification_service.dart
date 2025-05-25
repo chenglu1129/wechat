@@ -320,11 +320,13 @@ class NotificationService {
   
   // 取消所有通知
   Future<void> cancelAllNotifications() async {
+    if (kIsWeb) return; // Web平台上直接返回，不调用cancelAll
     await _localNotifications.cancelAll();
   }
   
   // 取消特定通知
   Future<void> cancelNotification(int id) async {
+    if (kIsWeb) return; // Web平台上直接返回，不调用cancel
     await _localNotifications.cancel(id);
   }
 } 

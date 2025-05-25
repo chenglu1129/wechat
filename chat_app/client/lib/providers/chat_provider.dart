@@ -45,48 +45,63 @@ class ChatProvider extends ChangeNotifier {
     // 关闭现有连接
     disconnectWebSocket();
     
-    // 创建新连接
-    final wsUrl = '${ApiConstants.wsUrl}?token=$token&user_id=$userId';
-    _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+    // 确保token不包含Bearer前缀，因为WebSocket连接不需要
+    final cleanToken = token.startsWith('Bearer ') ? token.substring(7) : token;
     
-    // 监听消息
-    _subscription = _channel?.stream.listen(
-      (data) {
-        try {
-          final jsonData = json.decode(data);
-          final messageType = _parseWebSocketMessageType(jsonData['type'] ?? 'message');
-          
-          switch (messageType) {
-            case WebSocketMessageType.message:
-              final message = Message.fromJson(jsonData);
-              _handleIncomingMessage(message);
-              // 触发消息接收回调，用于通知
-              onMessageReceived?.call(message);
-              break;
-            case WebSocketMessageType.userStatus:
-              _handleUserStatusChange(jsonData);
-              break;
-            case WebSocketMessageType.typing:
-              _handleTypingStatus(jsonData);
-              break;
-            case WebSocketMessageType.readReceipt:
-              _handleReadReceipt(jsonData);
-              break;
-            case WebSocketMessageType.system:
-              _handleSystemMessage(jsonData);
-              break;
+    // 创建新连接
+    final wsUrl = '${ApiConstants.wsUrl}?token=$cleanToken&user_id=$userId';
+    print('连接WebSocket: $wsUrl');
+    
+    try {
+      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      
+      // 监听消息
+      _subscription = _channel?.stream.listen(
+        (data) {
+          try {
+            print('收到WebSocket消息: $data');
+            final jsonData = json.decode(data);
+            final messageType = _parseWebSocketMessageType(jsonData['type'] ?? 'message');
+            
+            switch (messageType) {
+              case WebSocketMessageType.message:
+                final message = Message.fromJson(jsonData);
+                _handleIncomingMessage(message);
+                // 触发消息接收回调，用于通知
+                onMessageReceived?.call(message);
+                break;
+              case WebSocketMessageType.userStatus:
+                _handleUserStatusChange(jsonData);
+                break;
+              case WebSocketMessageType.typing:
+                _handleTypingStatus(jsonData);
+                break;
+              case WebSocketMessageType.readReceipt:
+                _handleReadReceipt(jsonData);
+                break;
+              case WebSocketMessageType.system:
+                _handleSystemMessage(jsonData);
+                break;
+            }
+          } catch (e) {
+            print('处理WebSocket消息错误: $e');
           }
-        } catch (e) {
-          print('处理WebSocket消息错误: $e');
-        }
-      },
-      onError: (error) {
-        _setError('WebSocket连接错误: $error');
-      },
-      onDone: () {
-        // 连接关闭，可以尝试重新连接
-      },
-    );
+        },
+        onError: (error) {
+          _setError('WebSocket连接错误: $error');
+          print('WebSocket错误: $error');
+        },
+        onDone: () {
+          print('WebSocket连接关闭');
+          // 连接关闭，可以尝试重新连接
+        },
+      );
+      
+      print('WebSocket连接成功');
+    } catch (e) {
+      print('WebSocket连接失败: $e');
+      _setError('WebSocket连接失败: $e');
+    }
   }
   
   // 解析WebSocket消息类型
@@ -237,24 +252,52 @@ class ChatProvider extends ChangeNotifier {
     }
     
     try {
-      // 解析聊天ID
-      final chatType = parts[0];
-      final id = parts[1];
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      print('加载消息使用的令牌: $authToken');
       
-      String url;
-      if (chatType == 'private') {
-        url = '${ApiConstants.baseUrl}/messages?type=private&receiver_id=$id&limit=$limit&offset=$offset';
-      } else {
-        url = '${ApiConstants.baseUrl}/messages?type=group&group_id=$id&limit=$limit&offset=$offset';
+      // 验证聊天ID格式
+      if (parts.length != 2) {
+        _setError('无效的聊天ID');
+        return;
       }
       
+      final chatType = parts[0];
+      final chatTargetId = parts[1];
+      
+      // 构建查询参数
+      final queryParams = {
+        'type': chatType == 'private' ? 'private' : 'group',
+        'limit': limit.toString(),
+        'offset': offset.toString(),
+      };
+      
+      // 根据聊天类型添加相应的ID参数
+      if (chatType == 'private') {
+        queryParams['receiver_id'] = chatTargetId;
+      } else {
+        queryParams['group_id'] = chatTargetId;
+      }
+      
+      // 打印请求信息
+      final requestUrl = Uri.parse('${ApiConstants.baseUrl}/messages').replace(queryParameters: queryParams);
+      print('加载消息请求URL: $requestUrl');
+      print('加载消息请求头: Authorization: $authToken');
+      
+      // 发送请求
       final response = await http.get(
-        Uri.parse(url),
+        requestUrl,
         headers: {
-          'Authorization': 'Bearer $token',
+          'Authorization': authToken,
           'Content-Type': 'application/json',
         },
       );
+      
+      // 打印响应信息用于调试
+      print('加载消息响应状态码: ${response.statusCode}');
+      if (response.body.isNotEmpty) {
+        print('加载消息响应体: ${response.body}');
+      }
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as List;
@@ -281,10 +324,10 @@ class ChatProvider extends ChangeNotifier {
         }
         _clearError(); // 确保清除错误状态
       } else {
-        _setError('加载消息失败');
+        _setError('加载消息失败: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试');
+      _setError('网络错误，请稍后再试: $e');
     } finally {
       _setLoading(false);
     }
@@ -293,19 +336,36 @@ class ChatProvider extends ChangeNotifier {
   // 发送消息
   Future<bool> sendMessage(String token, String content, {String? receiverId, String? groupId}) async {
     try {
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      print('发送消息使用的令牌: $authToken');
+      
+      // 准备请求体
+      final requestBody = {
+        'receiver_id': receiverId,
+        'group_id': groupId,
+        'type': 'text',
+        'content': content,
+      };
+      print('发送消息请求体: ${json.encode(requestBody)}');
+      
+      // 发送请求
+      final requestUrl = Uri.parse('${ApiConstants.baseUrl}/messages');
+      print('发送消息请求URL: $requestUrl');
+      print('发送消息请求头: Authorization: $authToken');
+      
       final response = await http.post(
-        Uri.parse('${ApiConstants.baseUrl}/messages'),
+        requestUrl,
         headers: {
-          'Authorization': 'Bearer $token',
+          'Authorization': authToken,
           'Content-Type': 'application/json',
         },
-        body: json.encode({
-          'receiver_id': receiverId,
-          'group_id': groupId,
-          'type': 'text',
-          'content': content,
-        }),
+        body: json.encode(requestBody),
       );
+      
+      // 打印响应信息用于调试
+      print('发送消息响应状态码: ${response.statusCode}');
+      print('发送消息响应体: ${response.body}');
       
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
@@ -329,11 +389,11 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        _setError('发送消息失败');
+        _setError('发送消息失败: ${response.statusCode} - ${response.body}');
         return false;
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试');
+      _setError('网络错误，请稍后再试: $e');
       return false;
     }
   }
@@ -347,10 +407,13 @@ class ChatProvider extends ChangeNotifier {
     {String? receiverId, String? groupId, Map<String, dynamic>? metadata}
   ) async {
     try {
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      
       final response = await http.post(
         Uri.parse('${ApiConstants.baseUrl}/messages'),
         headers: {
-          'Authorization': 'Bearer $token',
+          'Authorization': authToken,
           'Content-Type': 'application/json',
         },
         body: json.encode({
@@ -362,6 +425,10 @@ class ChatProvider extends ChangeNotifier {
           'metadata': metadata,
         }),
       );
+      
+      // 打印响应信息用于调试
+      print('发送媒体消息响应状态码: ${response.statusCode}');
+      print('发送媒体消息响应体: ${response.body}');
       
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
@@ -385,11 +452,11 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        _setError('发送媒体消息失败');
+        _setError('发送媒体消息失败: ${response.statusCode}');
         return false;
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试');
+      _setError('网络错误，请稍后再试: $e');
       return false;
     }
   }

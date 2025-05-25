@@ -22,10 +22,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadChats();
     
-    // 延迟一点启动模拟服务，确保Provider已经完成初始化
+    // 使用addPostFrameCallback确保在构建完成后才加载数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadChats();
+      // 延迟一点启动模拟服务，确保Provider已经完成初始化
       _startMockService();
     });
   }

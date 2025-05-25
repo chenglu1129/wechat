@@ -133,27 +133,34 @@ class AuthProvider extends ChangeNotifier {
           final data = json.decode(response.body);
           
           // 检查响应格式
-          if (data is Map<String, dynamic> && data.containsKey('user') && data.containsKey('token')) {
-            // 标准格式响应
-            _user = User.fromJson(data['user']);
+          if (data is Map<String, dynamic> && data.containsKey('token')) {
+            // 保存令牌
             _token = data['token'];
-            await _saveUserData();
-            notifyListeners();
-            return true;
-          } else if (data is Map<String, dynamic> && data.containsKey('token')) {
-            // 只有令牌的响应
-            _token = data['token'];
+            await _tokenManager.saveToken(_token!);
             
-            // 尝试获取用户信息
-            try {
-              _user = await _userService.getCurrentUserProfile();
-              await _saveUserData();
+            // 如果响应包含用户信息，直接使用
+            if (data.containsKey('user')) {
+              _user = User.fromJson(data['user']);
+              await _tokenManager.saveUserId(_user!.id);
               notifyListeners();
               return true;
-            } catch (e) {
-              _setError('获取用户信息失败');
-              print('获取用户信息失败: $e');
-              return false;
+            } else {
+              // 否则尝试获取用户信息
+              try {
+                _user = await _userService.getCurrentUserProfile();
+                if (_user != null) {
+                  await _tokenManager.saveUserId(_user!.id);
+                  notifyListeners();
+                  return true;
+                } else {
+                  _setError('获取用户信息失败');
+                  return false;
+                }
+              } catch (e) {
+                _setError('获取用户信息失败: $e');
+                print('获取用户信息失败: $e');
+                return false;
+              }
             }
           } else {
             // 不是预期的响应格式
@@ -162,36 +169,15 @@ class AuthProvider extends ChangeNotifier {
             return false;
           }
         } catch (e) {
-          // JSON解析失败
-          // 可能是后端直接返回了纯文本而非JSON
-          if (response.body.contains('欢迎') || response.body.contains('成功')) {
-            // 假设登录成功，但需要额外请求用户信息
-            try {
-              // 保存令牌 (假设令牌在响应头或响应体中)
-              // 这里仅作为临时解决方案
-              _token = 'temp_token'; // 实际应从响应中获取
-              
-              // 尝试使用临时令牌获取用户信息
-              _user = await _userService.getCurrentUserProfile();
-              await _saveUserData();
-              notifyListeners();
-              return true;
-            } catch (e) {
-              _setError('登录成功，但无法获取用户信息');
-              print('获取用户信息失败: $e');
-              return false;
-            }
-          } else {
-            _setError('服务器返回格式不正确');
-            print('JSON解析失败: $e, 响应体: ${response.body}');
-            return false;
-          }
+          _setError('解析响应失败: $e');
+          print('JSON解析失败: $e, 响应体: ${response.body}');
+          return false;
         }
       } else {
         // 尝试解析错误消息
         try {
           final data = json.decode(response.body);
-          _setError(data['message'] ?? '登录失败');
+          _setError(data['message'] ?? '登录失败: ${response.statusCode}');
         } catch (e) {
           _setError('登录失败: ${response.statusCode}');
           print('解析错误响应失败: $e, 响应体: ${response.body}');
@@ -199,7 +185,7 @@ class AuthProvider extends ChangeNotifier {
         return false;
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试');
+      _setError('网络错误，请稍后再试: $e');
       print('登录错误详情: $e');
       return false;
     } finally {

@@ -37,24 +37,31 @@ class UserService {
   
   // 获取当前用户资料
   Future<User> getCurrentUserProfile() async {
-    final token = await tokenManager.getToken();
+    final token = await tokenManager.getAuthToken();
     if (token == null) {
       throw Exception('未登录');
     }
     
-    final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/users/me'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
-    
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return User.fromJson(data);
-    } else {
-      throw Exception('获取当前用户资料失败: ${response.body}');
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/users/me'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+      );
+      
+      print('获取用户资料响应状态码: ${response.statusCode}');
+      print('获取用户资料响应体: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return User.fromJson(data);
+      } else {
+        throw Exception('获取当前用户资料失败: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('获取当前用户资料失败: $e');
     }
   }
   

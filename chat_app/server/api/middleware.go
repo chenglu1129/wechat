@@ -26,18 +26,23 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 令牌格式：Bearer {token}
-		tokenParts := strings.Split(authHeader, " ")
-		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-			http.Error(w, "无效的授权格式", http.StatusUnauthorized)
-			return
-		}
+		// 打印请求头信息（仅用于调试）
+		println("收到的Authorization头:", authHeader)
 
-		tokenString := tokenParts[1]
+		// 提取令牌
+		var tokenString string
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			// 标准格式：Bearer {token}
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		} else {
+			// 非标准格式，直接使用整个头
+			tokenString = authHeader
+		}
 
 		// 验证令牌
 		claims, err := utils.ParseToken(tokenString)
 		if err != nil {
+			println("令牌解析错误:", err.Error())
 			http.Error(w, "无效的令牌", http.StatusUnauthorized)
 			return
 		}

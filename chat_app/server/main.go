@@ -98,6 +98,11 @@ func main() {
 	userService := services.NewUserService(userRepo, contactRepo)
 	contactService := services.NewContactService(userRepo, contactRepo)
 
+	// 初始化消息服务和处理器
+	messageRepo := database.NewMessageRepository(mongodb)
+	messageService := services.NewMessageService(messageRepo, redisDB, natsDB, hub)
+	messageHandler := api.NewMessageHandler(messageService)
+
 	// 初始化通知服务
 	var notificationService *services.NotificationService
 	if redisDB != nil {
@@ -130,6 +135,10 @@ func main() {
 	router.Handle("/contacts/add", api.AuthMiddleware(http.HandlerFunc(contactHandler.AddContact))).Methods("POST")
 	router.Handle("/contacts/remove", api.AuthMiddleware(http.HandlerFunc(contactHandler.RemoveContact))).Methods("POST")
 	router.Handle("/users/search", api.AuthMiddleware(http.HandlerFunc(contactHandler.SearchUsers))).Methods("GET")
+
+	// 消息路由（带认证）
+	router.Handle("/messages", api.AuthMiddleware(http.HandlerFunc(messageHandler.SendMessage))).Methods("POST")
+	router.Handle("/messages", api.AuthMiddleware(http.HandlerFunc(messageHandler.GetMessages))).Methods("GET")
 
 	// 通知路由（带认证）
 	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.SaveFCMToken))).Methods("POST")

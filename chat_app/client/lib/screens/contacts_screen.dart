@@ -63,8 +63,11 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
   @override
   void didChangeDependencies() {
     if (!_isInit) {
-      // 加载联系人列表
-      Provider.of<ContactProvider>(context, listen: false).loadContacts();
+      // 使用addPostFrameCallback确保在构建完成后才加载数据
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // 加载联系人列表
+        Provider.of<ContactProvider>(context, listen: false).loadContacts();
+      });
       _isInit = true;
     }
     super.didChangeDependencies();
