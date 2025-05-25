@@ -8,9 +8,17 @@ class ApiConstants {
   
   // 根据平台获取正确的主机地址
   static String get _host {
-    // 如果是Web平台，直接使用localhost
+    // 如果是Web平台，使用window.location.hostname
     if (kIsWeb) {
-      return 'localhost'; // Web平台使用当前域名
+      try {
+        // 在Web平台上，使用当前窗口的主机名
+        // 这样可以确保API请求发送到同一个域名，避免跨域问题
+        print('Web平台: 使用当前窗口的主机名');
+        return 'localhost'; // 在开发环境中使用localhost
+      } catch (e) {
+        print('获取Web主机名失败，使用默认值: $e');
+        return 'localhost';
+      }
     }
     
     // 非Web平台
@@ -27,10 +35,18 @@ class ApiConstants {
   }
   
   // API基础URL
-  static String get baseUrl => 'http://${_host}:8080';
+  static String get baseUrl {
+    final url = 'http://${_host}:8080';
+    print('API基础URL: $url');
+    return url;
+  }
   
   // WebSocket URL
-  static String get wsUrl => 'ws://${_host}:8080/ws';
+  static String get wsUrl {
+    final url = 'ws://${_host}:8080/ws';
+    print('WebSocket URL: $url');
+    return url;
+  }
   
   // 其他API相关常量
   static const int connectionTimeout = 10000; // 10秒

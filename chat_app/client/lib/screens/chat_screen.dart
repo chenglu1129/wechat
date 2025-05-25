@@ -8,9 +8,12 @@ import '../models/user.dart';
 import '../models/chat.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/contact_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/chat_input.dart';
 import '../services/media_service.dart';
+import '../services/user_service.dart';
+import '../utils/token_manager.dart';
 
 class ChatScreen extends StatefulWidget {
   final User user;
@@ -31,6 +34,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _error;
   String? _chatId;
   User? _contact;
+  bool _isLoadingContact = false;
   
   @override
   void initState() {
@@ -38,6 +42,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _contact = widget.user; // 初始化联系人
     _initChat();
     _scrollController.addListener(_onScroll);
+    
+    // 如果联系人信息不完整，尝试加载完整信息
+    if (_contact?.email == 'unknown@example.com') {
+      _loadContactInfo();
+    }
   }
   
   @override
@@ -46,6 +55,59 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+  
+  // 加载联系人完整信息
+  Future<void> _loadContactInfo() async {
+    if (_isLoadingContact || _contact == null) return;
+    
+    setState(() {
+      _isLoadingContact = true;
+    });
+    
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final contactProvider = Provider.of<ContactProvider>(context, listen: false);
+      
+      if (authProvider.token != null) {
+        // 首先尝试从联系人列表中获取
+        final contactFromList = contactProvider.contacts.contacts.firstWhere(
+          (contact) => contact.id == _contact!.id,
+          orElse: () => _contact!,
+        );
+        
+        if (contactFromList.email != 'unknown@example.com') {
+          // 如果找到了完整的联系人信息，更新当前联系人
+          setState(() {
+            _contact = contactFromList;
+            _isLoadingContact = false;
+          });
+          return;
+        }
+        
+        // 如果联系人列表中没有，尝试从API获取
+        final tokenManager = TokenManager();
+        final userService = UserService(tokenManager: tokenManager);
+        
+        try {
+          await tokenManager.saveToken(authProvider.token!);
+          final user = await userService.getUserProfile(_contact!.id);
+          
+          setState(() {
+            _contact = user;
+          });
+        } catch (e) {
+          print('加载联系人信息失败: $e');
+          // 不显示错误，继续使用现有的联系人信息
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingContact = false;
+        });
+      }
+    }
   }
   
   void _initChat() {
@@ -62,6 +124,24 @@ class _ChatScreenState extends State<ChatScreen> {
         
         // 加载消息历史
         chatProvider.loadMessages(authProvider.token!, _chatId!);
+        
+        // 确保此聊天添加到聊天列表中
+        // 如果没有消息历史，创建一个空的聊天项
+        final existingChat = chatProvider.chats.firstWhere(
+          (chat) => chat.id == _chatId,
+          orElse: () => Chat(
+            id: _chatId!,
+            name: widget.user.username,
+            avatarUrl: widget.user.avatarUrl,
+            type: ChatType.private,
+            isOnline: widget.user.isOnline,
+          ),
+        );
+        
+        // 如果是新聊天，添加到列表中
+        if (!chatProvider.chats.any((chat) => chat.id == _chatId)) {
+          chatProvider.addChat(existingChat);
+        }
       }
     });
   }
@@ -259,11 +339,69 @@ class _ChatScreenState extends State<ChatScreen> {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     
     if (authProvider.user != null && _contact != null && authProvider.token != null) {
+      print('发送消息: "${text}" 到用户: ${_contact!.username} (ID: ${_contact!.id})');
+      
       // 使用现有的sendMessage方法发送消息
       chatProvider.sendMessage(
         authProvider.token!,
         text,
         receiverId: _contact!.id.toString(),
+      ).then((success) {
+        if (success) {
+          print('消息发送成功');
+          
+          // 确保聊天被添加到首页列表
+          final chatId = 'private_${_contact!.id}';
+          final existingChat = chatProvider.chats.firstWhere(
+            (chat) => chat.id == chatId,
+            orElse: () => Chat(
+              id: chatId,
+              name: _contact!.username,
+              avatarUrl: _contact!.avatarUrl,
+              type: ChatType.private,
+              lastMessage: text,
+              lastMessageTime: DateTime.now(),
+              isOnline: _contact!.isOnline,
+            ),
+          );
+          
+          // 如果是新聊天，添加到列表中
+          if (!chatProvider.chats.any((chat) => chat.id == chatId)) {
+            print('将新聊天添加到列表: $chatId');
+            chatProvider.addChat(existingChat);
+          }
+        } else {
+          print('消息发送失败: ${chatProvider.error}');
+          // 显示错误提示
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('发送失败: ${chatProvider.error ?? "未知错误"}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }).catchError((error) {
+        print('发送消息时发生错误: $error');
+        // 显示错误提示
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('发送错误: $error'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      });
+    } else {
+      print('无法发送消息: 用户未登录或联系人为空');
+      print('authProvider.user: ${authProvider.user}');
+      print('_contact: $_contact');
+      print('authProvider.token: ${authProvider.token != null ? "非空" : "为空"}');
+      
+      // 显示错误提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('无法发送消息: 请确保您已登录'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }

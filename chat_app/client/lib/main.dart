@@ -24,6 +24,7 @@ import 'services/media_service.dart';
 import 'utils/app_routes.dart';
 import 'utils/token_manager.dart';
 import 'models/user.dart';
+import 'models/chat.dart';
 
 // 全局导航键，用于在通知服务中导航
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -146,10 +147,56 @@ class MyApp extends StatelessWidget {
             onGenerateRoute: (settings) {
               if (settings.name == AppRoutes.chat) {
                 // 处理聊天路由
-                final args = settings.arguments as Map<String, dynamic>;
-                final user = args['user'] as User;
+                final args = settings.arguments;
+                if (args is User) {
+                  // 如果参数是User对象
+                  return MaterialPageRoute(
+                    builder: (context) => ChatScreen(user: args),
+                  );
+                } else if (args is Chat) {
+                  // 如果参数是Chat对象
+                  // 从Chat对象中提取必要信息，创建一个临时User对象
+                  final chatId = args.id;
+                  final parts = chatId.split('_');
+                  if (parts.length == 2 && parts[0] == 'private') {
+                    final userId = int.tryParse(parts[1]);
+                    if (userId != null) {
+                      final tempUser = User(
+                        id: userId,
+                        username: args.name,
+                        email: 'unknown@example.com', // 临时值
+                        avatarUrl: args.avatarUrl,
+                        isOnline: args.isOnline,
+                      );
+                      return MaterialPageRoute(
+                        builder: (context) => ChatScreen(user: tempUser),
+                      );
+                    }
+                  }
+                  // 如果无法解析聊天ID或者是群聊，显示错误页面
+                  return MaterialPageRoute(
+                    builder: (context) => Scaffold(
+                      appBar: AppBar(title: const Text('错误')),
+                      body: const Center(
+                        child: Text('无法打开聊天，无效的聊天ID'),
+                      ),
+                    ),
+                  );
+                } else if (args is Map<String, dynamic>) {
+                  // 兼容旧的参数格式
+                  final user = args['user'] as User;
+                  return MaterialPageRoute(
+                    builder: (context) => ChatScreen(user: user),
+                  );
+                }
+                // 如果参数格式不正确，显示错误页面
                 return MaterialPageRoute(
-                  builder: (context) => ChatScreen(user: user),
+                  builder: (context) => Scaffold(
+                    appBar: AppBar(title: const Text('错误')),
+                    body: const Center(
+                      child: Text('无法打开聊天，参数格式不正确'),
+                    ),
+                  ),
                 );
               } else if (settings.name == AppRoutes.profile) {
                 // 处理资料页路由

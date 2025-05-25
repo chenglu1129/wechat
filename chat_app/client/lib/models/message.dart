@@ -77,9 +77,7 @@ class Message {
   
   // 解析消息类型
   static MessageType _parseMessageType(String type) {
-    switch (type) {
-      case 'text':
-        return MessageType.text;
+    switch (type.toLowerCase()) {
       case 'image':
         return MessageType.image;
       case 'video':
@@ -92,18 +90,13 @@ class Message {
         return MessageType.location;
       case 'system':
         return MessageType.system;
+      case 'text':
       default:
         return MessageType.text;
     }
   }
   
-  // 是否为群组消息
-  bool get isGroupMessage => groupId != null;
-  
-  // 是否为自己发送的消息
-  bool isSentByMe(String currentUserId) => senderId == currentUserId;
-  
-  // 格式化时间
+  // 格式化消息时间
   String get formattedTime {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -146,4 +139,10 @@ class Message {
         return '';
     }
   }
+  
+  // 判断是否为群组消息
+  bool get isGroupMessage => groupId != null && groupId!.isNotEmpty;
+  
+  // 是否为自己发送的消息
+  bool isSentByMe(String currentUserId) => senderId == currentUserId;
 } 

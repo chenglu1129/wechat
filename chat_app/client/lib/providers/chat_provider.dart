@@ -208,8 +208,27 @@ class ChatProvider extends ChangeNotifier {
       }
     } else {
       // 创建新聊天
-      // 这里需要获取用户/群组信息
-      // 实际应用中，应该通过API获取这些信息
+      // 确定聊天类型和ID
+      final isGroup = message.isGroupMessage;
+      final targetId = isGroup ? message.groupId : (message.senderId == message.receiverId ? message.receiverId : message.senderId);
+      final name = message.senderName ?? (isGroup ? "群聊" : "联系人");
+      
+      // 创建新的聊天对象
+      final newChat = Chat(
+        id: chatId,
+        name: name,
+        avatarUrl: message.senderAvatar,
+        type: isGroup ? ChatType.group : ChatType.private,
+        lastMessage: message.content,
+        lastMessageTime: message.timestamp,
+        unreadCount: _currentChatId == chatId ? 0 : 1,
+      );
+      
+      // 添加到列表顶部
+      _chats.insert(0, newChat);
+      
+      // 打印调试信息
+      print('创建新聊天: $chatId, 名称: $name');
     }
   }
   
@@ -218,25 +237,112 @@ class ChatProvider extends ChangeNotifier {
     _setLoading(true);
     
     try {
+      // 尝试从/chats接口获取聊天列表
+      print('尝试从/chats接口获取聊天列表...');
       final response = await http.get(
         Uri.parse('${ApiConstants.baseUrl}/chats'),
         headers: {
-          'Authorization': 'Bearer $token',
+          'Authorization': token.startsWith('Bearer ') ? token : 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
       
+      print('获取聊天列表响应状态码: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
+        // 如果接口存在且返回成功，解析数据
         final data = json.decode(response.body) as List;
         _chats.clear();
         _chats.addAll(data.map((item) => Chat.fromJson(item)).toList());
+        print('成功从/chats接口获取聊天列表，共${_chats.length}个聊天');
+      } else if (response.statusCode == 404) {
+        // 如果接口不存在，使用备用方案
+        print('/chats接口不存在，使用备用方案...');
+        await _loadChatsFromMessages(token);
       } else {
-        _setError('加载聊天列表失败');
+        print('加载聊天列表失败: ${response.statusCode} - ${response.body}');
+        _setError('加载聊天列表失败: ${response.statusCode}');
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试');
+      print('加载聊天列表时发生错误: $e');
+      // 出现错误，尝试备用方案
+      print('尝试使用备用方案...');
+      await _loadChatsFromMessages(token);
     } finally {
       _setLoading(false);
+    }
+  }
+  
+  // 备用方案：从消息历史构建聊天列表
+  Future<void> _loadChatsFromMessages(String token) async {
+    try {
+      // 清空现有聊天列表
+      _chats.clear();
+      
+      // 从本地存储加载联系人列表
+      // 这里我们需要一个简单的方法来获取联系人列表
+      // 由于我们没有直接访问联系人提供者，我们可以使用一个简单的方法
+      
+      // 如果有消息历史，从消息历史中构建聊天列表
+      if (_messages.isNotEmpty) {
+        print('从现有消息历史构建聊天列表...');
+        
+        for (final entry in _messages.entries) {
+          final chatId = entry.key;
+          final messages = entry.value;
+          
+          if (messages.isNotEmpty) {
+            // 获取最新消息
+            final latestMessage = messages.reduce(
+              (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b
+            );
+            
+            // 确定聊天类型和名称
+            final isGroup = latestMessage.isGroupMessage;
+            String name;
+            String? avatarUrl;
+            
+            if (isGroup) {
+              name = '群聊 ${latestMessage.groupId}';
+              avatarUrl = null;
+            } else {
+              name = latestMessage.senderName ?? '联系人';
+              avatarUrl = latestMessage.senderAvatar;
+            }
+            
+            // 创建聊天对象
+            final chat = Chat(
+              id: chatId,
+              name: name,
+              avatarUrl: avatarUrl,
+              type: isGroup ? ChatType.group : ChatType.private,
+              lastMessage: latestMessage.content,
+              lastMessageTime: latestMessage.timestamp,
+              unreadCount: messages.where((m) => !m.read).length,
+              isOnline: false, // 默认离线
+            );
+            
+            // 添加到列表
+            _chats.add(chat);
+          }
+        }
+        
+        // 按最后消息时间排序
+        _chats.sort((a, b) {
+          if (a.lastMessageTime == null) return 1;
+          if (b.lastMessageTime == null) return -1;
+          return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+        });
+        
+        print('从消息历史构建了${_chats.length}个聊天');
+      } else {
+        print('没有消息历史，尝试加载一些最近的消息...');
+        // 如果没有消息历史，可以尝试加载一些最近的消息
+        // 这里我们可以留空，等用户点击联系人时自动创建聊天
+      }
+    } catch (e) {
+      print('从消息历史构建聊天列表时发生错误: $e');
+      _setError('无法加载聊天列表: $e');
     }
   }
   
@@ -340,6 +446,13 @@ class ChatProvider extends ChangeNotifier {
       final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
       print('发送消息使用的令牌: $authToken');
       
+      // 验证参数
+      if ((receiverId == null || receiverId.isEmpty) && (groupId == null || groupId.isEmpty)) {
+        print('错误: 发送消息时receiverId和groupId都为空');
+        _setError('发送消息失败: 接收者ID不能为空');
+        return false;
+      }
+      
       // 准备请求体
       final requestBody = {
         'receiver_id': receiverId,
@@ -371,16 +484,25 @@ class ChatProvider extends ChangeNotifier {
         final data = json.decode(response.body);
         final message = Message.fromJson(data);
         
-        // 确定聊天ID
-        final chatId = message.isGroupMessage
-            ? 'group_${message.groupId}'
-            : 'private_${message.receiverId}';
+        // 确定聊天ID - 修复这里的逻辑
+        String chatId;
+        if (message.isGroupMessage) {
+          chatId = 'group_${message.groupId}';
+        } else {
+          // 对于私聊，聊天ID应该始终使用对方的ID
+          // 如果当前用户是发送者，则使用接收者ID；如果当前用户是接收者，则使用发送者ID
+          final otherUserId = message.senderId == receiverId ? message.receiverId : receiverId;
+          chatId = 'private_$otherUserId';
+        }
+        print('消息的聊天ID: $chatId');
         
         // 添加消息到列表
         if (_messages.containsKey(chatId)) {
           _messages[chatId]!.add(message);
+          print('消息已添加到现有聊天');
         } else {
           _messages[chatId] = [message];
+          print('为新聊天创建消息列表');
         }
         
         // 更新聊天列表
@@ -389,11 +511,15 @@ class ChatProvider extends ChangeNotifier {
         notifyListeners();
         return true;
       } else {
-        _setError('发送消息失败: ${response.statusCode} - ${response.body}');
+        final errorMsg = '发送消息失败: ${response.statusCode} - ${response.body}';
+        print(errorMsg);
+        _setError(errorMsg);
         return false;
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试: $e');
+      final errorMsg = '发送消息时发生错误: $e';
+      print(errorMsg);
+      _setError(errorMsg);
       return false;
     }
   }
@@ -515,5 +641,15 @@ class ChatProvider extends ChangeNotifier {
   void _clearError() {
     _error = null;
     notifyListeners();
+  }
+  
+  // 添加聊天到列表
+  void addChat(Chat chat) {
+    // 检查是否已存在
+    if (!_chats.any((existingChat) => existingChat.id == chat.id)) {
+      _chats.insert(0, chat); // 添加到列表顶部
+      notifyListeners();
+      print('添加新聊天到列表: ${chat.id}, 名称: ${chat.name}');
+    }
   }
 } 
