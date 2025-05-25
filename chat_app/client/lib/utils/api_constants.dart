@@ -1,5 +1,6 @@
-import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+// 有条件地导入dart:io
+import 'dart:io' if (dart.library.html) '../utils/platform_web.dart' as platform;
 
 class ApiConstants {
   // 禁止实例化
@@ -7,16 +8,16 @@ class ApiConstants {
   
   // 根据平台获取正确的主机地址
   static String get _host {
-    // 如果是Web平台，直接使用window.location.hostname
+    // 如果是Web平台，直接使用localhost
     if (kIsWeb) {
       return 'localhost'; // Web平台使用当前域名
     }
     
     // 非Web平台
-    if (Platform.isAndroid) {
+    if (platform.Platform.isAndroid) {
       // Android模拟器访问主机的特殊IP
       return '10.0.2.2';
-    } else if (Platform.isIOS) {
+    } else if (platform.Platform.isIOS) {
       // iOS模拟器访问主机的特殊IP
       return '127.0.0.1';
     } else {

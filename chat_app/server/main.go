@@ -15,6 +15,8 @@ import (
 	"chat_app/server/database"
 	"chat_app/server/services"
 	"chat_app/server/websocket"
+
+	"github.com/gorilla/mux"
 )
 
 func main() {
@@ -90,46 +92,62 @@ func main() {
 	// 初始化WebSocket处理器
 	wsHandler := websocket.NewHandler(hub)
 
-	// 设置HTTP路由
-	mux := http.NewServeMux()
-
-	// API路由
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "欢迎使用聊天应用API")
-	})
-
-	// 初始化认证处理器
+	// 初始化服务
 	userRepo := database.NewUserRepository(postgresDB)
 	contactRepo := database.NewContactRepository(postgresDB)
 	userService := services.NewUserService(userRepo, contactRepo)
+	contactService := services.NewContactService(userRepo, contactRepo)
+
+	// 初始化通知服务
+	var notificationService *services.NotificationService
+	if redisDB != nil {
+		notificationService = services.NewNotificationService(redisDB.Client)
+	}
+
+	// 初始化API
+	apiHandler := api.NewAPI(userService, contactService, notificationService)
+
+	// 初始化认证处理器
 	authHandler := api.NewAuthHandler(userService)
 
 	// 创建联系人处理器
-	contactHandler := api.NewContactHandler(userService)
+	contactHandler := api.NewContactHandler(contactService)
+
+	// 创建路由器
+	router := mux.NewRouter()
+
+	// 主页路由
+	router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "欢迎使用聊天应用API")
+	}).Methods("GET")
 
 	// 认证路由
-	mux.HandleFunc("/auth/register", authHandler.Register)
-	mux.HandleFunc("/auth/login", authHandler.Login)
+	router.HandleFunc("/auth/register", authHandler.Register).Methods("POST")
+	router.HandleFunc("/auth/login", authHandler.Login).Methods("POST")
 
-	// 联系人路由
-	mux.HandleFunc("/contacts", func(w http.ResponseWriter, r *http.Request) {
-		api.AuthMiddleware(http.HandlerFunc(contactHandler.GetContacts)).ServeHTTP(w, r)
-	})
-	mux.HandleFunc("/contacts/add", func(w http.ResponseWriter, r *http.Request) {
-		api.AuthMiddleware(http.HandlerFunc(contactHandler.AddContact)).ServeHTTP(w, r)
-	})
-	mux.HandleFunc("/contacts/remove", func(w http.ResponseWriter, r *http.Request) {
-		api.AuthMiddleware(http.HandlerFunc(contactHandler.RemoveContact)).ServeHTTP(w, r)
-	})
-	mux.HandleFunc("/users/search", func(w http.ResponseWriter, r *http.Request) {
-		api.AuthMiddleware(http.HandlerFunc(contactHandler.SearchUsers)).ServeHTTP(w, r)
-	})
+	// 联系人路由（带认证）
+	router.Handle("/contacts", api.AuthMiddleware(http.HandlerFunc(contactHandler.GetContacts))).Methods("GET")
+	router.Handle("/contacts/add", api.AuthMiddleware(http.HandlerFunc(contactHandler.AddContact))).Methods("POST")
+	router.Handle("/contacts/remove", api.AuthMiddleware(http.HandlerFunc(contactHandler.RemoveContact))).Methods("POST")
+	router.Handle("/users/search", api.AuthMiddleware(http.HandlerFunc(contactHandler.SearchUsers))).Methods("GET")
+
+	// 通知路由（带认证）
+	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.SaveFCMToken))).Methods("POST")
+	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.DeleteFCMToken))).Methods("DELETE")
+	router.Handle("/notifications/test/{user_id}", api.AuthMiddleware(http.HandlerFunc(apiHandler.TestSendNotification))).Methods("POST")
+
+	// 媒体路由
+	router.Handle("/media/upload", api.AuthMiddleware(http.HandlerFunc(apiHandler.UploadMedia))).Methods("POST")
+	router.HandleFunc("/media/{type}/{filename}", apiHandler.GetMedia).Methods("GET")
 
 	// WebSocket路由
-	mux.HandleFunc("/ws", wsHandler.HandleWebSocket)
+	router.HandleFunc("/ws", wsHandler.HandleWebSocket)
 
-	// 应用中间件
-	handler := api.CORSMiddleware(api.LoggingMiddleware(mux))
+	// 创建上传目录
+	os.MkdirAll("uploads", 0755)
+
+	// 添加CORS和日志中间件
+	handler := api.CORSMiddleware(api.LoggingMiddleware(router))
 
 	// 创建HTTP服务器
 	server := &http.Server{

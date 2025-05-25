@@ -16,4 +16,5 @@ class AppRoutes {
   static const String groupInfo = '/group-info';
   static const String friendRequests = '/friend-requests';
   static const String changePassword = '/change-password';
+  static const String notificationSettings = '/notification-settings';
 } 

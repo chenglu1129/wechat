@@ -9,7 +9,8 @@ type User struct {
 	ID           int       `json:"id"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"` // 不在JSON中暴露密码哈希
+	PasswordHash string    `json:"-"`          // 不在JSON中暴露密码哈希
+	AvatarURL    string    `json:"avatar_url"` // 用户头像URL
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -18,25 +19,25 @@ type User struct {
 type UserRepository interface {
 	// 创建新用户
 	CreateUser(user *User) error
-	
+
 	// 通过ID查找用户
 	GetUserByID(id int) (*User, error)
-	
+
 	// 通过用户名查找用户
 	GetUserByUsername(username string) (*User, error)
-	
+
 	// 通过邮箱查找用户
 	GetUserByEmail(email string) (*User, error)
-	
+
 	// 更新用户信息
 	UpdateUser(user *User) error
-	
+
 	// 删除用户
 	DeleteUser(id int) error
-	
+
 	// 获取用户列表
 	ListUsers(offset, limit int) ([]*User, error)
-	
+
 	// 搜索用户
 	SearchUsers(query string, offset, limit int) ([]*User, error)
 }
@@ -53,13 +54,13 @@ type Contact struct {
 type ContactRepository interface {
 	// 添加联系人
 	AddContact(userID, contactID int) error
-	
+
 	// 删除联系人
 	RemoveContact(userID, contactID int) error
-	
+
 	// 获取用户的所有联系人
 	GetContacts(userID int) ([]*User, error)
-	
+
 	// 检查是否为联系人
 	IsContact(userID, contactID int) (bool, error)
-} 
+}

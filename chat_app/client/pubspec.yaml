@@ -43,6 +43,9 @@ dependencies:
   just_audio: ^0.9.36
   camera: ^0.10.5+5
   video_player: ^2.8.1
+  
+  # 通知
+  flutter_local_notifications: ^16.2.0
 
 dev_dependencies:
   flutter_test:

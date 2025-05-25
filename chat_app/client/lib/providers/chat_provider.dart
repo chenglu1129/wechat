@@ -23,15 +23,20 @@ class ChatProvider extends ChangeNotifier {
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
   String? _currentChatId;
+  int? _currentChatUserId; // 当前正在聊天的用户ID
   bool _isLoading = false;
   String? _error;
   
   // 联系人在线状态变化回调
   Function(int userId, bool isOnline)? onUserStatusChanged;
   
+  // 消息接收回调，用于通知服务
+  Function(Message message)? onMessageReceived;
+  
   List<Chat> get chats => [..._chats];
   List<Message> get currentMessages => _currentChatId != null ? [...?_messages[_currentChatId]] : [];
   String? get currentChatId => _currentChatId;
+  int? get currentChatUserId => _currentChatUserId;
   bool get isLoading => _isLoading;
   String? get error => _error;
   
@@ -55,6 +60,8 @@ class ChatProvider extends ChangeNotifier {
             case WebSocketMessageType.message:
               final message = Message.fromJson(jsonData);
               _handleIncomingMessage(message);
+              // 触发消息接收回调，用于通知
+              onMessageReceived?.call(message);
               break;
             case WebSocketMessageType.userStatus:
               _handleUserStatusChange(jsonData);
@@ -223,9 +230,14 @@ class ChatProvider extends ChangeNotifier {
     _setLoading(true);
     _currentChatId = chatId;
     
+    // 解析聊天ID，设置当前聊天用户ID
+    final parts = chatId.split('_');
+    if (parts.length == 2 && parts[0] == 'private') {
+      _currentChatUserId = int.tryParse(parts[1]);
+    }
+    
     try {
       // 解析聊天ID
-      final parts = chatId.split('_');
       final chatType = parts[0];
       final id = parts[1];
       
@@ -317,9 +329,73 @@ class ChatProvider extends ChangeNotifier {
     }
   }
   
+  // 发送媒体消息
+  Future<bool> sendMediaMessage(
+    String token,
+    MessageType type,
+    String mediaUrl,
+    String content,
+    {String? receiverId, String? groupId, Map<String, dynamic>? metadata}
+  ) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/messages'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: json.encode({
+          'receiver_id': receiverId,
+          'group_id': groupId,
+          'type': type.toString().split('.').last,
+          'content': content,
+          'media_url': mediaUrl,
+          'metadata': metadata,
+        }),
+      );
+      
+      if (response.statusCode == 201) {
+        final data = json.decode(response.body);
+        final message = Message.fromJson(data);
+        
+        // 确定聊天ID
+        final chatId = message.isGroupMessage
+            ? 'group_${message.groupId}'
+            : 'private_${message.receiverId}';
+        
+        // 添加消息到列表
+        if (_messages.containsKey(chatId)) {
+          _messages[chatId]!.add(message);
+        } else {
+          _messages[chatId] = [message];
+        }
+        
+        // 更新聊天列表
+        _updateChatList(chatId, message);
+        
+        notifyListeners();
+        return true;
+      } else {
+        _setError('发送媒体消息失败');
+        return false;
+      }
+    } catch (e) {
+      _setError('网络错误，请稍后再试');
+      return false;
+    }
+  }
+  
   // 设置当前聊天
   void setCurrentChat(String chatId) {
     _currentChatId = chatId;
+    
+    // 更新当前聊天用户ID
+    final parts = chatId.split('_');
+    if (parts.length == 2 && parts[0] == 'private') {
+      _currentChatUserId = int.tryParse(parts[1]);
+    } else {
+      _currentChatUserId = null;
+    }
     
     // 将未读消息数设为0
     final chatIndex = _chats.indexWhere((chat) => chat.id == chatId);
@@ -327,6 +403,13 @@ class ChatProvider extends ChangeNotifier {
       _chats[chatIndex] = _chats[chatIndex].copyWith(unreadCount: 0);
     }
     
+    notifyListeners();
+  }
+  
+  // 清除当前聊天
+  void clearCurrentChat() {
+    _currentChatId = null;
+    _currentChatUserId = null;
     notifyListeners();
   }
   

@@ -11,12 +11,12 @@ import (
 
 // ContactHandler 处理联系人相关的API请求
 type ContactHandler struct {
-	userService *services.UserService
+	contactService *services.ContactService
 }
 
 // NewContactHandler 创建新的联系人处理器
-func NewContactHandler(userService *services.UserService) *ContactHandler {
-	return &ContactHandler{userService: userService}
+func NewContactHandler(contactService *services.ContactService) *ContactHandler {
+	return &ContactHandler{contactService: contactService}
 }
 
 // ContactRequest 联系人请求结构
@@ -54,7 +54,7 @@ func (h *ContactHandler) AddContact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 添加联系人
-	err = h.userService.AddContact(userID, req.ContactID)
+	err = h.contactService.AddContact(userID, req.ContactID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -94,7 +94,7 @@ func (h *ContactHandler) RemoveContact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 删除联系人
-	err = h.userService.RemoveContact(userID, contactID)
+	err = h.contactService.RemoveContact(userID, contactID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -121,7 +121,7 @@ func (h *ContactHandler) GetContacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 获取联系人列表
-	contacts, err := h.userService.GetContacts(userID)
+	contacts, err := h.contactService.GetContacts(userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -160,7 +160,7 @@ func (h *ContactHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 搜索用户
-	users, err := h.userService.SearchUsers(req.Query, req.Offset, req.Limit)
+	users, err := h.contactService.SearchUsers(req.Query, req.Offset, req.Limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

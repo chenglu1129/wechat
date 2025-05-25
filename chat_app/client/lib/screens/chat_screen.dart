@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../models/message.dart';
 import '../models/user.dart';
@@ -8,6 +9,8 @@ import '../models/chat.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../widgets/message_bubble.dart';
+import '../widgets/chat_input.dart';
+import '../services/media_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final User user;
@@ -27,10 +30,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = false;
   String? _error;
   String? _chatId;
+  User? _contact;
   
   @override
   void initState() {
     super.initState();
+    _contact = widget.user; // 初始化联系人
     _initChat();
     _scrollController.addListener(_onScroll);
   }
@@ -130,44 +135,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            CircleAvatar(
-              backgroundImage: widget.user.avatarUrl != null
-                  ? NetworkImage(widget.user.avatarUrl!)
-                  : null,
-              child: widget.user.avatarUrl == null
-                  ? Text(widget.user.username[0].toUpperCase())
-                  : null,
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(widget.user.username),
-                Text(
-                  widget.user.isOnline ? '在线' : '离线',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: widget.user.isOnline ? Colors.green : Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
+        title: Text(_contact?.username ?? '聊天'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.info_outline),
+            icon: const Icon(Icons.more_vert),
             onPressed: () {
-              // 显示联系人信息
-              Navigator.of(context).pushNamed(
-                '/profile',
-                arguments: {
-                  'user': widget.user,
-                  'isContact': true, // 假设从聊天界面进入的用户都是联系人
-                },
-              );
+              // 显示聊天选项菜单
             },
           ),
         ],
@@ -177,7 +150,7 @@ class _ChatScreenState extends State<ChatScreen> {
           // 消息列表
           Expanded(
             child: Consumer<ChatProvider>(
-              builder: (ctx, chatProvider, child) {
+              builder: (ctx, chatProvider, _) {
                 if (chatProvider.isLoading && chatProvider.currentMessages.isEmpty) {
                   return const Center(
                     child: CircularProgressIndicator(),
@@ -258,48 +231,112 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           
           // 输入框
-          Container(
-            padding: const EdgeInsets.all(8.0),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  offset: const Offset(0, -1),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file),
-                  onPressed: () {
-                    // 显示附件选择
-                  },
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      border: InputBorder.none,
-                    ),
-                    maxLines: null,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _sendMessage,
-                ),
-              ],
-            ),
+          ChatInput(
+            onSendText: _sendTextMessage,
+            onSendMedia: _sendMediaMessage,
+            mediaService: Provider.of<MediaService>(context, listen: false),
           ),
         ],
       ),
     );
+  }
+  
+  // 发送文本消息
+  void _sendTextMessage(String text) {
+    if (text.isEmpty) return;
+    
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    
+    if (authProvider.user != null && _contact != null && authProvider.token != null) {
+      // 使用现有的sendMessage方法发送消息
+      chatProvider.sendMessage(
+        authProvider.token!,
+        text,
+        receiverId: _contact!.id.toString(),
+      );
+    }
+  }
+  
+  // 发送媒体消息
+  void _sendMediaMessage(MediaItem mediaItem, String? caption) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final mediaService = Provider.of<MediaService>(context, listen: false);
+    
+    if (authProvider.user != null && _contact != null && authProvider.token != null) {
+      // 显示加载指示器
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('正在上传媒体文件...'),
+            ],
+          ),
+        ),
+      );
+      
+      try {
+        // 上传媒体文件
+        final mediaUrl = await mediaService.uploadMedia(mediaItem);
+        
+        // 关闭加载指示器
+        Navigator.pop(context);
+        
+        if (mediaUrl != null) {
+          // 准备媒体消息内容
+          String content = caption ?? '';
+          
+          // 使用sendMediaMessage方法发送媒体消息
+          chatProvider.sendMediaMessage(
+            authProvider.token!,
+            _getMessageTypeFromMediaType(mediaItem.type),
+            mediaUrl,
+            content,
+            receiverId: _contact!.id.toString(),
+            metadata: {
+              'name': mediaItem.name,
+              'size': mediaItem.size,
+              'mime_type': mediaItem.mimeType,
+            },
+          );
+        } else {
+          // 显示错误
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('上传媒体文件失败')),
+          );
+        }
+      } catch (e) {
+        // 关闭加载指示器
+        Navigator.pop(context);
+        
+        // 显示错误
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('上传媒体文件失败: $e')),
+        );
+      }
+    }
+  }
+  
+  // 根据媒体类型获取消息类型
+  MessageType _getMessageTypeFromMediaType(MediaType mediaType) {
+    switch (mediaType) {
+      case MediaType.image:
+        return MessageType.image;
+      case MediaType.video:
+        return MessageType.video;
+      case MediaType.audio:
+        return MessageType.audio;
+      case MediaType.file:
+        return MessageType.file;
+      default:
+        return MessageType.text;
+    }
   }
   
   Widget _buildDateDivider(DateTime date) {

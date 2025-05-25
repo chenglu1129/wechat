@@ -21,6 +21,8 @@ class Message {
   final DateTime timestamp;
   final bool read;
   final Map<String, dynamic>? metadata;
+  final String? senderName;
+  final String? senderAvatar;
   
   Message({
     required this.id,
@@ -33,6 +35,8 @@ class Message {
     required this.timestamp,
     this.read = false,
     this.metadata,
+    this.senderName,
+    this.senderAvatar,
   });
   
   // 从JSON创建消息
@@ -48,6 +52,8 @@ class Message {
       timestamp: DateTime.parse(json['timestamp']),
       read: json['read'] ?? false,
       metadata: json['metadata'],
+      senderName: json['sender_name'],
+      senderAvatar: json['sender_avatar'],
     );
   }
   
@@ -64,6 +70,8 @@ class Message {
       'timestamp': timestamp.toIso8601String(),
       'read': read,
       'metadata': metadata,
+      'sender_name': senderName,
+      'sender_avatar': senderAvatar,
     };
   }
   
