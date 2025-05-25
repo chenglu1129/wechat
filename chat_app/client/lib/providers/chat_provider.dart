@@ -271,6 +271,15 @@ class ChatProvider extends ChangeNotifier {
         if (chatIndex >= 0) {
           _chats[chatIndex] = _chats[chatIndex].copyWith(unreadCount: 0);
         }
+        
+        // 清除可能存在的错误状态
+        _clearError();
+      } else if (response.statusCode == 404 && offset == 0) {
+        // 如果是首次加载且没有找到消息，这是正常情况（新对话）
+        if (!_messages.containsKey(chatId)) {
+          _messages[chatId] = []; // 初始化为空列表
+        }
+        _clearError(); // 确保清除错误状态
       } else {
         _setError('加载消息失败');
       }

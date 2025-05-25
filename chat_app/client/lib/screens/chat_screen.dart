@@ -157,29 +157,36 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 }
                 
-                if (chatProvider.error != null && chatProvider.currentMessages.isEmpty) {
+                final messages = chatProvider.currentMessages;
+                if (messages.isEmpty) {
+                  // 即使有错误，如果没有消息，也显示友好的空聊天提示，而不是错误信息
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(
-                          '加载消息失败: ${chatProvider.error}',
-                          textAlign: TextAlign.center,
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 64,
+                          color: Colors.grey[400],
                         ),
                         const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _initChat,
-                          child: const Text('重试'),
+                        Text(
+                          '没有消息记录',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '发送一条消息开始聊天吧',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[500],
+                          ),
                         ),
                       ],
                     ),
-                  );
-                }
-                
-                final messages = chatProvider.currentMessages;
-                if (messages.isEmpty) {
-                  return const Center(
-                    child: Text('没有消息，开始聊天吧'),
                   );
                 }
                 
@@ -231,10 +238,13 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           
           // 输入框
-          ChatInput(
-            onSendText: _sendTextMessage,
-            onSendMedia: _sendMediaMessage,
-            mediaService: Provider.of<MediaService>(context, listen: false),
+          Consumer<ChatProvider>(
+            builder: (ctx, chatProvider, _) => ChatInput(
+              onSendText: _sendTextMessage,
+              onSendMedia: _sendMediaMessage,
+              mediaService: Provider.of<MediaService>(context, listen: false),
+              isFirstMessage: chatProvider.currentMessages.isEmpty,
+            ),
           ),
         ],
       ),

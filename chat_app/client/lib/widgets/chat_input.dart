@@ -12,12 +12,14 @@ class ChatInput extends StatefulWidget {
   final Function(String) onSendText;
   final Function(MediaItem, String?) onSendMedia;
   final MediaService mediaService;
+  final bool isFirstMessage;
   
   const ChatInput({
     Key? key,
     required this.onSendText,
     required this.onSendMedia,
     required this.mediaService,
+    this.isFirstMessage = false,
   }) : super(key: key);
   
   @override
@@ -81,6 +83,25 @@ class _ChatInputState extends State<ChatInput> {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // 首条消息提示
+        if (widget.isFirstMessage)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: Colors.amber[50],
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: Colors.amber[800], size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '这是你们的第一次对话，说声"你好"吧！',
+                    style: TextStyle(color: Colors.amber[800]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
         // 媒体预览
         if (_inputMode == ChatInputMode.media && _selectedMedia != null)
           MediaPreview(
@@ -120,8 +141,8 @@ class _ChatInputState extends State<ChatInput> {
                 Expanded(
                   child: TextField(
                     controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
+                    decoration: InputDecoration(
+                      hintText: widget.isFirstMessage ? '发送第一条消息...' : '输入消息...',
                       border: InputBorder.none,
                     ),
                     maxLines: null,
