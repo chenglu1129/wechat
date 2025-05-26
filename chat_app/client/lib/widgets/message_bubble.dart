@@ -4,11 +4,13 @@ import '../models/message.dart';
 class MessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
+  final String? senderName;
   
   const MessageBubble({
     Key? key,
     required this.message,
     required this.isMe,
+    this.senderName,
   }) : super(key: key);
   
   @override
@@ -22,43 +24,62 @@ class MessageBubble extends StatelessWidget {
           if (!isMe) _buildAvatar(),
           
           Flexible(
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: isMe 
-                    ? Theme.of(context).primaryColor
-                    : Theme.of(context).cardColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-                  bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 3,
-                    offset: const Offset(0, 1),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  _buildMessageContent(),
-                  const SizedBox(height: 4),
-                  Text(
-                    message.formattedTime,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: isMe ? Colors.white70 : Colors.black54,
+            child: Column(
+              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                // 显示发送者名称（仅在群聊中且不是自己发送的消息时）
+                if (!isMe && senderName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12, bottom: 2),
+                    child: Text(
+                      senderName!,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ],
-              ),
+                
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.7,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isMe 
+                        ? Theme.of(context).primaryColor
+                        : Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
+                      bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 3,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    children: [
+                      _buildMessageContent(),
+                      const SizedBox(height: 4),
+                      Text(
+                        message.formattedTime,
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: isMe ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           
@@ -80,7 +101,7 @@ class MessageBubble extends StatelessWidget {
       ),
       child: Center(
         child: Text(
-          isMe ? 'Me' : message.senderId.substring(0, 1).toUpperCase(),
+          isMe ? 'Me' : (senderName?.substring(0, 1).toUpperCase() ?? message.senderId.substring(0, 1).toUpperCase()),
           style: const TextStyle(
             color: Colors.white,
             fontSize: 12,

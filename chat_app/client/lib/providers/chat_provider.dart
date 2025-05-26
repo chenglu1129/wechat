@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -650,6 +651,143 @@ class ChatProvider extends ChangeNotifier {
       _chats.insert(0, chat); // 添加到列表顶部
       notifyListeners();
       print('添加新聊天到列表: ${chat.id}, 名称: ${chat.name}');
+    }
+  }
+
+  // 加载群组消息
+  Future<void> loadGroupMessages(String token, String groupId, {int limit = 20, int offset = 0}) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      final chatId = 'group_$groupId';
+      _currentChatId = chatId;
+      
+      final response = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/messages?type=group&group_id=$groupId&limit=$limit&offset=$offset'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final messages = data.map((item) => Message.fromJson(item)).toList();
+        
+        // 更新消息列表
+        if (!_messages.containsKey(chatId)) {
+          _messages[chatId] = [];
+        }
+        
+        if (offset == 0) {
+          _messages[chatId] = messages;
+        } else {
+          _messages[chatId]!.addAll(messages);
+        }
+        
+        notifyListeners();
+      } else if (response.statusCode == 404) {
+        // 如果没有消息，初始化为空列表
+        if (!_messages.containsKey(chatId)) {
+          _messages[chatId] = [];
+        }
+      } else {
+        throw Exception('加载群组消息失败: ${response.body}');
+      }
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // 发送群组文本消息
+  Future<void> sendGroupMessage({
+    required String groupId,
+    required String content,
+    required MessageType type,
+  }) async {
+    try {
+      final chatId = 'group_$groupId';
+      
+      // 创建消息对象
+      final message = Message(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        senderId: _currentChatUserId?.toString() ?? '1',
+        senderName: 'Me', // 当前用户名
+        senderAvatar: null,
+        groupId: groupId,
+        type: type,
+        content: content,
+        timestamp: DateTime.now(),
+        read: false,
+      );
+      
+      // 将消息添加到本地列表
+      if (!_messages.containsKey(chatId)) {
+        _messages[chatId] = [];
+      }
+      _messages[chatId]!.add(message);
+      
+      // 更新聊天列表
+      _updateChatList(chatId, message);
+      
+      notifyListeners();
+      
+      // 发送消息到服务器
+      final token = _channel != null ? 'Bearer token' : ''; // 模拟token，实际应从认证提供者获取
+      
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/messages'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+        body: jsonEncode({
+          'group_id': groupId,
+          'type': type.toString().split('.').last,
+          'content': content,
+        }),
+      );
+      
+      if (response.statusCode != 201 && response.statusCode != 200) {
+        throw Exception('发送消息失败: ${response.body}');
+      }
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      print('发送群组消息错误: $e');
+      // 不抛出异常，让用户界面继续工作
+    }
+  }
+
+  // 发送群组媒体消息
+  Future<void> sendGroupMediaMessage({
+    required String groupId,
+    required File file,
+    required MessageType type,
+  }) async {
+    try {
+      // 模拟上传媒体文件
+      await Future.delayed(const Duration(seconds: 1));
+      final mediaUrl = 'file://${file.path}';
+      
+      // 发送包含媒体URL的消息
+      await sendGroupMessage(
+        groupId: groupId,
+        content: mediaUrl,
+        type: type,
+      );
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      print('发送群组媒体消息错误: $e');
+      // 不抛出异常，让用户界面继续工作
     }
   }
 } 

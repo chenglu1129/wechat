@@ -14,6 +14,8 @@ import 'screens/change_password_screen.dart';
 import 'screens/notification_settings_screen.dart';
 import 'screens/create_group_screen.dart';
 import 'screens/group_info_screen.dart';
+import 'screens/main_screen.dart';
+import 'screens/group_chat_screen.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/theme_provider.dart';
@@ -147,9 +149,9 @@ class MyApp extends StatelessWidget {
               AppRoutes.splash: (context) => const SplashScreen(),
               AppRoutes.login: (context) => const LoginScreen(),
               AppRoutes.register: (context) => const RegisterScreen(),
-              AppRoutes.home: (context) => const HomeScreen(),
+              AppRoutes.home: (context) => const MainScreen(),
               AppRoutes.contacts: (context) => const ContactsScreen(),
-              AppRoutes.profile: (context) => const ProfileScreen(),
+              AppRoutes.profile: (context) => const ProfileScreen(isTabView: false),
               AppRoutes.friendRequests: (context) => const FriendRequestsScreen(),
               AppRoutes.changePassword: (context) => const ChangePasswordScreen(),
               AppRoutes.notificationSettings: (context) => const NotificationSettingsScreen(),
@@ -188,16 +190,34 @@ class MyApp extends StatelessWidget {
                     }
                   } else if (args.type == ChatType.group) {
                     // 群聊
-                    // TODO: 实现群聊界面
-                    // 暂时显示错误页面
-                    return MaterialPageRoute(
-                      builder: (context) => Scaffold(
-                        appBar: AppBar(title: const Text('群聊')),
-                        body: const Center(
-                          child: Text('群聊功能正在开发中'),
-                        ),
-                      ),
-                    );
+                    final chatId = args.id;
+                    final parts = chatId.split('_');
+                    if (parts.length == 2 && parts[0] == 'group') {
+                      final groupId = parts[1];
+                      
+                      // 从群组提供者中获取群组信息
+                      final groupProvider = Provider.of<GroupProvider>(context, listen: false);
+                      late Group group;
+                      
+                      try {
+                        // 尝试从群组列表中查找群组
+                        group = groupProvider.groups.firstWhere((g) => g.id == groupId);
+                      } catch (e) {
+                        // 如果找不到，创建一个临时群组对象
+                        group = Group(
+                          id: groupId,
+                          name: args.name,
+                          avatarUrl: args.avatarUrl,
+                          ownerId: '0', // 临时值
+                          adminIds: [],
+                          createdAt: DateTime.now(),
+                        );
+                      }
+                      
+                      return MaterialPageRoute(
+                        builder: (context) => GroupChatScreen(group: group),
+                      );
+                    }
                   }
                   // 如果无法解析聊天ID，显示错误页面
                   return MaterialPageRoute(
