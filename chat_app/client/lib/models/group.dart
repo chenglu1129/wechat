@@ -32,14 +32,28 @@ class Group {
 
   // 从JSON创建群组
   factory Group.fromJson(Map<String, dynamic> json) {
+    // 打印完整的JSON数据以便调试
+    print('Group.fromJson 原始数据: $json');
+    
+    // 提取成员数量，确保正确解析
+    int memberCount = 0;
+    if (json.containsKey('member_count')) {
+      if (json['member_count'] is int) {
+        memberCount = json['member_count'];
+      } else if (json['member_count'] is String) {
+        memberCount = int.tryParse(json['member_count']) ?? 0;
+      }
+    }
+    print('解析的成员数量: $memberCount');
+    
     return Group(
       id: json['id'].toString(),
       name: json['name'],
       avatarUrl: json['avatar_url'],
       announcement: json['announcement'],
-      ownerId: json['owner_id'].toString(),
+      ownerId: json['created_by'].toString(),
       adminIds: (json['admin_ids'] as List<dynamic>?)?.map((id) => id.toString()).toList() ?? [],
-      memberCount: json['member_count'] ?? 0,
+      memberCount: memberCount,
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: json['updated_at'] != null ? DateTime.parse(json['updated_at']) : null,
     );

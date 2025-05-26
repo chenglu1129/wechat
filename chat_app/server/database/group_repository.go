@@ -21,7 +21,7 @@ func NewSQLGroupRepository(db *sql.DB) *SQLGroupRepository {
 func (r *SQLGroupRepository) CreateGroup(group *models.Group) error {
 	query := `
 		INSERT INTO groups (name, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id
 	`
 
@@ -45,7 +45,7 @@ func (r *SQLGroupRepository) GetGroupByID(id int) (*models.Group, error) {
 	query := `
 		SELECT id, name, created_by, created_at, updated_at
 		FROM groups
-		WHERE id = ?
+		WHERE id = $1
 	`
 
 	group := &models.Group{}
@@ -71,8 +71,8 @@ func (r *SQLGroupRepository) GetGroupByID(id int) (*models.Group, error) {
 func (r *SQLGroupRepository) UpdateGroup(group *models.Group) error {
 	query := `
 		UPDATE groups
-		SET name = ?, updated_at = ?
-		WHERE id = ?
+		SET name = $1, updated_at = $2
+		WHERE id = $3
 	`
 
 	group.UpdatedAt = time.Now()
@@ -96,14 +96,14 @@ func (r *SQLGroupRepository) DeleteGroup(id int) error {
 	}
 
 	// 删除群组成员
-	_, err = tx.Exec("DELETE FROM group_members WHERE group_id = ?", id)
+	_, err = tx.Exec("DELETE FROM group_members WHERE group_id = $1", id)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 
 	// 删除群组
-	_, err = tx.Exec("DELETE FROM groups WHERE id = ?", id)
+	_, err = tx.Exec("DELETE FROM groups WHERE id = $1", id)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -118,7 +118,7 @@ func (r *SQLGroupRepository) GetGroupsByCreator(userID int) ([]*models.Group, er
 	query := `
 		SELECT id, name, created_by, created_at, updated_at
 		FROM groups
-		WHERE created_by = ?
+		WHERE created_by = $1
 		ORDER BY updated_at DESC
 	`
 
@@ -137,7 +137,7 @@ func (r *SQLGroupRepository) GetGroupsByMember(userID int) ([]*models.Group, err
 		SELECT g.id, g.name, g.created_by, g.created_at, g.updated_at
 		FROM groups g
 		JOIN group_members gm ON g.id = gm.group_id
-		WHERE gm.user_id = ?
+		WHERE gm.user_id = $1
 		ORDER BY g.updated_at DESC
 	`
 
@@ -155,9 +155,9 @@ func (r *SQLGroupRepository) SearchGroups(query string, offset, limit int) ([]*m
 	sqlQuery := `
 		SELECT id, name, created_by, created_at, updated_at
 		FROM groups
-		WHERE name LIKE ?
+		WHERE name LIKE $1
 		ORDER BY updated_at DESC
-		LIMIT ? OFFSET ?
+		LIMIT $2 OFFSET $3
 	`
 
 	rows, err := r.db.Query(sqlQuery, "%"+query+"%", limit, offset)
@@ -211,8 +211,8 @@ func NewSQLGroupMemberRepository(db *sql.DB) *SQLGroupMemberRepository {
 func (r *SQLGroupMemberRepository) AddMember(groupID, userID int, isAdmin bool) error {
 	query := `
 		INSERT INTO group_members (group_id, user_id, is_admin, joined_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT (group_id, user_id) DO UPDATE SET is_admin = ?
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (group_id, user_id) DO UPDATE SET is_admin = $5
 	`
 
 	_, err := r.db.Exec(
@@ -229,7 +229,7 @@ func (r *SQLGroupMemberRepository) AddMember(groupID, userID int, isAdmin bool) 
 
 // RemoveMember 移除群组成员
 func (r *SQLGroupMemberRepository) RemoveMember(groupID, userID int) error {
-	query := `DELETE FROM group_members WHERE group_id = ? AND user_id = ?`
+	query := `DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`
 	_, err := r.db.Exec(query, groupID, userID)
 	return err
 }
@@ -240,7 +240,7 @@ func (r *SQLGroupMemberRepository) GetMembers(groupID int) ([]*models.User, erro
 		SELECT u.id, u.username, u.email, u.avatar_url, u.created_at
 		FROM users u
 		JOIN group_members gm ON u.id = gm.user_id
-		WHERE gm.group_id = ?
+		WHERE gm.group_id = $1
 		ORDER BY gm.joined_at
 	`
 
@@ -288,7 +288,7 @@ func (r *SQLGroupMemberRepository) GetAdmins(groupID int) ([]*models.User, error
 		SELECT u.id, u.username, u.email, u.avatar_url, u.created_at
 		FROM users u
 		JOIN group_members gm ON u.id = gm.user_id
-		WHERE gm.group_id = ? AND gm.is_admin = true
+		WHERE gm.group_id = $1 AND gm.is_admin = true
 		ORDER BY gm.joined_at
 	`
 
@@ -332,7 +332,7 @@ func (r *SQLGroupMemberRepository) GetAdmins(groupID int) ([]*models.User, error
 
 // IsMember 检查用户是否为群组成员
 func (r *SQLGroupMemberRepository) IsMember(groupID, userID int) (bool, error) {
-	query := `SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`
+	query := `SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2 LIMIT 1`
 
 	var exists int
 	err := r.db.QueryRow(query, groupID, userID).Scan(&exists)
@@ -349,7 +349,7 @@ func (r *SQLGroupMemberRepository) IsMember(groupID, userID int) (bool, error) {
 
 // IsAdmin 检查用户是否为群组管理员
 func (r *SQLGroupMemberRepository) IsAdmin(groupID, userID int) (bool, error) {
-	query := `SELECT is_admin FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1`
+	query := `SELECT is_admin FROM group_members WHERE group_id = $1 AND user_id = $2 LIMIT 1`
 
 	var isAdmin bool
 	err := r.db.QueryRow(query, groupID, userID).Scan(&isAdmin)
@@ -366,7 +366,7 @@ func (r *SQLGroupMemberRepository) IsAdmin(groupID, userID int) (bool, error) {
 
 // SetAdmin 设置或取消管理员权限
 func (r *SQLGroupMemberRepository) SetAdmin(groupID, userID int, isAdmin bool) error {
-	query := `UPDATE group_members SET is_admin = ? WHERE group_id = ? AND user_id = ?`
+	query := `UPDATE group_members SET is_admin = $1 WHERE group_id = $2 AND user_id = $3`
 	_, err := r.db.Exec(query, isAdmin, groupID, userID)
 	return err
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -70,7 +71,9 @@ class MyApp extends StatelessWidget {
     final contactProvider = ContactProvider(contactService: contactService);
     final friendRequestProvider = FriendRequestProvider(friendRequestService: friendRequestService);
     final groupProvider = GroupProvider(groupService: groupService);
-    final mediaService = MediaService(tokenManager: tokenManager);
+    
+    // 创建MediaService实例
+    final mediaService = MediaServiceImpl(tokenManager: tokenManager);
     
     // 监听登录状态变化，连接/断开WebSocket
     authProvider.addListener(() async {
@@ -91,7 +94,8 @@ class MyApp extends StatelessWidget {
         }
         
         // 加载用户的群组列表
-        groupProvider.loadUserGroups();
+        print('用户已登录，ID: ${authProvider.user!.id}，加载群组列表');
+        await groupProvider.loadUserGroups();
       } else {
         // 登出，断开WebSocket
         chatProvider.disconnectWebSocket();

@@ -213,120 +213,127 @@ class _ChatScreenState extends State<ChatScreen> {
   
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_contact?.username ?? '聊天'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {
-              // 显示聊天选项菜单
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // 消息列表
-          Expanded(
-            child: Consumer<ChatProvider>(
-              builder: (ctx, chatProvider, _) {
-                if (chatProvider.isLoading && chatProvider.currentMessages.isEmpty) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
-                
-                final messages = chatProvider.currentMessages;
-                if (messages.isEmpty) {
-                  // 即使有错误，如果没有消息，也显示友好的空聊天提示，而不是错误信息
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          '没有消息记录',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '发送一条消息开始聊天吧',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[500],
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                
-                // 按时间倒序排列消息
-                final sortedMessages = List<Message>.from(messages)
-                  ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-                
-                return ListView.builder(
-                  controller: _scrollController,
-                  reverse: true, // 从底部开始显示
-                  padding: const EdgeInsets.all(10),
-                  itemCount: sortedMessages.length + (_isLoading ? 1 : 0),
-                  itemBuilder: (ctx, index) {
-                    if (_isLoading && index == 0) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-                    
-                    final realIndex = _isLoading ? index - 1 : index;
-                    final message = sortedMessages[realIndex];
-                    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                    final isMe = message.senderId == authProvider.user?.id.toString();
-                    
-                    // 显示日期分隔符
-                    final showDate = realIndex == sortedMessages.length - 1 ||
-                        _shouldShowDate(sortedMessages[realIndex], 
-                                      realIndex < sortedMessages.length - 1 
-                                          ? sortedMessages[realIndex + 1] 
-                                          : null);
-                    
-                    return Column(
-                      children: [
-                        if (showDate)
-                          _buildDateDivider(message.timestamp),
-                        MessageBubble(
-                          message: message,
-                          isMe: isMe,
-                        ),
-                      ],
-                    );
-                  },
-                );
+    // 获取TokenManager
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    return Provider<MediaService>(
+      // 创建MediaService实例
+      create: (_) => MediaServiceImpl(tokenManager: TokenManager()),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_contact?.username ?? '聊天'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.more_vert),
+              onPressed: () {
+                // 显示聊天选项菜单
               },
             ),
-          ),
-          
-          // 输入框
-          Consumer<ChatProvider>(
-            builder: (ctx, chatProvider, _) => ChatInput(
-              onSendText: _sendTextMessage,
-              onSendMedia: _sendMediaMessage,
-              mediaService: Provider.of<MediaService>(context, listen: false),
-              isFirstMessage: chatProvider.currentMessages.isEmpty,
+          ],
+        ),
+        body: Column(
+          children: [
+            // 消息列表
+            Expanded(
+              child: Consumer<ChatProvider>(
+                builder: (ctx, chatProvider, _) {
+                  if (chatProvider.isLoading && chatProvider.currentMessages.isEmpty) {
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  }
+                  
+                  final messages = chatProvider.currentMessages;
+                  if (messages.isEmpty) {
+                    // 即使有错误，如果没有消息，也显示友好的空聊天提示，而不是错误信息
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.chat_bubble_outline,
+                            size: 64,
+                            color: Colors.grey[400],
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            '没有消息记录',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '发送一条消息开始聊天吧',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[500],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  
+                  // 按时间倒序排列消息
+                  final sortedMessages = List<Message>.from(messages)
+                    ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+                  
+                  return ListView.builder(
+                    controller: _scrollController,
+                    reverse: true, // 从底部开始显示
+                    padding: const EdgeInsets.all(10),
+                    itemCount: sortedMessages.length + (_isLoading ? 1 : 0),
+                    itemBuilder: (ctx, index) {
+                      if (_isLoading && index == 0) {
+                        return const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        );
+                      }
+                      
+                      final realIndex = _isLoading ? index - 1 : index;
+                      final message = sortedMessages[realIndex];
+                      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                      final isMe = message.senderId == authProvider.user?.id.toString();
+                      
+                      // 显示日期分隔符
+                      final showDate = realIndex == sortedMessages.length - 1 ||
+                          _shouldShowDate(sortedMessages[realIndex], 
+                                        realIndex < sortedMessages.length - 1 
+                                            ? sortedMessages[realIndex + 1] 
+                                            : null);
+                      
+                      return Column(
+                        children: [
+                          if (showDate)
+                            _buildDateDivider(message.timestamp),
+                          MessageBubble(
+                            message: message,
+                            isMe: isMe,
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+            
+            // 输入框
+            Consumer<ChatProvider>(
+              builder: (ctx, chatProvider, _) => ChatInput(
+                onSendText: _sendTextMessage,
+                onSendMedia: _sendMediaMessage,
+                mediaService: Provider.of<MediaService>(context, listen: false),
+                isFirstMessage: chatProvider.currentMessages.isEmpty,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -708,18 +708,33 @@ class ChatProvider extends ChangeNotifier {
       );
       
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        final messages = data.map((item) => Message.fromJson(item)).toList();
+        // 添加空值检查
+        final dynamic responseData = jsonDecode(response.body);
         
-        // 更新消息列表
-        if (offset == 0) {
-          _messages[chatId] = messages;
+        // 如果返回null或者不是List类型，初始化为空列表
+        if (responseData == null) {
+          print('群组 $groupId 没有消息记录，服务器返回null');
+          if (offset == 0) {
+            _messages[chatId] = [];
+          }
+        } else if (responseData is List) {
+          final messages = responseData.map((item) => Message.fromJson(item)).toList();
+          
+          // 更新消息列表
+          if (offset == 0) {
+            _messages[chatId] = messages;
+          } else {
+            _messages[chatId]!.addAll(messages);
+          }
+          
+          // 保存消息到本地存储
+          _saveMessagesToStorage();
         } else {
-          _messages[chatId]!.addAll(messages);
+          print('群组消息格式不正确: $responseData');
+          if (offset == 0) {
+            _messages[chatId] = [];
+          }
         }
-        
-        // 保存消息到本地存储
-        _saveMessagesToStorage();
         
         notifyListeners();
       } else if (response.statusCode == 404) {
@@ -742,6 +757,7 @@ class ChatProvider extends ChangeNotifier {
 
   // 发送群组文本消息
   Future<void> sendGroupMessage({
+    required String token,
     required String groupId,
     required String content,
     required MessageType type,
@@ -776,14 +792,15 @@ class ChatProvider extends ChangeNotifier {
       
       notifyListeners();
       
-      // 发送消息到服务器
-      final token = _channel != null ? 'Bearer token' : ''; // 模拟token，实际应从认证提供者获取
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      print('发送群组消息使用的令牌: $authToken');
       
       final response = await http.post(
         Uri.parse('${ApiConstants.baseUrl}/messages'),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': token,
+          'Authorization': authToken,
         },
         body: jsonEncode({
           'group_id': groupId,
@@ -805,6 +822,7 @@ class ChatProvider extends ChangeNotifier {
 
   // 发送群组媒体消息
   Future<void> sendGroupMediaMessage({
+    required String token,
     required String groupId,
     required File file,
     required MessageType type,
@@ -816,6 +834,7 @@ class ChatProvider extends ChangeNotifier {
       
       // 发送包含媒体URL的消息
       await sendGroupMessage(
+        token: token,
         groupId: groupId,
         content: mediaUrl,
         type: type,

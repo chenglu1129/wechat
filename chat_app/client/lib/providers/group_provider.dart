@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../models/group.dart';
 import '../models/user.dart';
 import '../services/group_service.dart';
-import '../utils/mock_group_service.dart';
 
 class GroupProvider with ChangeNotifier {
   final GroupService _groupService;
@@ -44,7 +43,7 @@ class GroupProvider with ChangeNotifier {
       _groups = await _groupService.getUserGroups();
       print('成功加载了 ${_groups.length} 个群组');
       for (var group in _groups) {
-        print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+        print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}, 拥有者=${group.ownerId}');
       }
       notifyListeners();
     } catch (e) {
@@ -65,22 +64,32 @@ class GroupProvider with ChangeNotifier {
     _clearError();
     
     try {
+      print('开始创建群组: $name, 成员数: ${memberIds.length}');
       final group = await _groupService.createGroup(
         name: name,
         memberIds: memberIds,
         avatarFile: avatarFile,
       );
       
+      // 确保成员数量正确
+      final updatedGroup = group.copyWith(
+        memberCount: memberIds.length + 1  // +1 是因为创建者也是成员
+      );
+      
+      print('群组创建成功: ID=${updatedGroup.id}, 名称=${updatedGroup.name}, 成员数=${updatedGroup.memberCount}');
+      
       // 将新创建的群组添加到列表中
-      _groups.insert(0, group);
+      _groups.insert(0, updatedGroup);
       
       // 立即重新加载群组列表确保持久化
+      print('重新加载群组列表以确保持久化');
       await loadUserGroups();
       
       notifyListeners();
       
-      return group;
+      return updatedGroup;
     } catch (e) {
+      print('创建群组失败: $e');
       _setError('创建群组失败: $e');
       return null;
     } finally {
@@ -95,6 +104,15 @@ class GroupProvider with ChangeNotifier {
     
     // 加载群组成员
     await loadGroupMembers(group.id);
+    
+    // 更新群组成员数量
+    if (_currentGroup != null && _currentGroupMembers.isNotEmpty) {
+      _currentGroup = _currentGroup!.copyWith(
+        memberCount: _currentGroupMembers.length
+      );
+      notifyListeners();
+      print('更新群组成员数量为: ${_currentGroupMembers.length}');
+    }
   }
   
   // 加载群组成员
@@ -104,8 +122,18 @@ class GroupProvider with ChangeNotifier {
     
     try {
       _currentGroupMembers = await _groupService.getGroupMembers(groupId);
+      
+      // 如果是当前群组，更新成员数量
+      if (_currentGroup != null && _currentGroup!.id == groupId) {
+        _currentGroup = _currentGroup!.copyWith(
+          memberCount: _currentGroupMembers.length
+        );
+        print('加载群组成员完成，更新成员数量为: ${_currentGroupMembers.length}');
+      }
+      
       notifyListeners();
     } catch (e) {
+      print('加载群组成员失败: $e');
       _setError('加载群组成员失败: $e');
     } finally {
       _setLoading(false);

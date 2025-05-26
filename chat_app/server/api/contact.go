@@ -4,19 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"chat_app/server/services"
-	"chat_app/server/utils"
 )
 
-// ContactHandler 处理联系人相关的API请求
+// ContactHandler 处理联系人相关的请求
 type ContactHandler struct {
 	contactService *services.ContactService
 }
 
 // NewContactHandler 创建新的联系人处理器
 func NewContactHandler(contactService *services.ContactService) *ContactHandler {
-	return &ContactHandler{contactService: contactService}
+	return &ContactHandler{
+		contactService: contactService,
+	}
 }
 
 // ContactRequest 联系人请求结构
@@ -31,90 +33,42 @@ type SearchUserRequest struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// AddContact 添加联系人
-func (h *ContactHandler) AddContact(w http.ResponseWriter, r *http.Request) {
-	// 只允许POST方法
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
+// SearchUsers 搜索用户
+func (h *ContactHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
+	// 获取查询参数
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		http.Error(w, "缺少查询参数", http.StatusBadRequest)
 		return
 	}
 
-	// 验证用户身份
-	userID, err := utils.GetUserIDFromRequest(r)
+	// 获取分页参数
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page <= 0 {
+		page = 1
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	// 搜索用户
+	users, err := h.contactService.SearchUsers(query, page, limit)
 	if err != nil {
-		http.Error(w, "未授权", http.StatusUnauthorized)
+		http.Error(w, "搜索用户失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// 解析请求体
-	var req ContactRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "无效的请求数据", http.StatusBadRequest)
-		return
-	}
-
-	// 添加联系人
-	err = h.contactService.AddContact(userID, req.ContactID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// 返回成功响应
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "联系人添加成功"})
+	// 返回结果
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(users)
 }
 
-// RemoveContact 删除联系人
-func (h *ContactHandler) RemoveContact(w http.ResponseWriter, r *http.Request) {
-	// 只允许DELETE方法
-	if r.Method != http.MethodDelete {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 验证用户身份
-	userID, err := utils.GetUserIDFromRequest(r)
-	if err != nil {
-		http.Error(w, "未授权", http.StatusUnauthorized)
-		return
-	}
-
-	// 从URL获取联系人ID
-	contactIDStr := r.URL.Query().Get("contact_id")
-	if contactIDStr == "" {
-		http.Error(w, "缺少联系人ID", http.StatusBadRequest)
-		return
-	}
-
-	contactID, err := strconv.Atoi(contactIDStr)
-	if err != nil {
-		http.Error(w, "无效的联系人ID", http.StatusBadRequest)
-		return
-	}
-
-	// 删除联系人
-	err = h.contactService.RemoveContact(userID, contactID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// 返回成功响应
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "联系人删除成功"})
-}
-
-// GetContacts 获取所有联系人
+// GetContacts 获取联系人列表
 func (h *ContactHandler) GetContacts(w http.ResponseWriter, r *http.Request) {
-	// 只允许GET方法
-	if r.Method != http.MethodGet {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 验证用户身份
-	userID, err := utils.GetUserIDFromRequest(r)
+	// 从上下文获取用户ID
+	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
@@ -123,7 +77,7 @@ func (h *ContactHandler) GetContacts(w http.ResponseWriter, r *http.Request) {
 	// 获取联系人列表
 	contacts, err := h.contactService.GetContacts(userID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "获取联系人失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -132,41 +86,79 @@ func (h *ContactHandler) GetContacts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(contacts)
 }
 
-// SearchUsers 搜索用户
-func (h *ContactHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
-	// 只允许POST方法
-	if r.Method != http.MethodPost {
-		http.Error(w, "方法不允许", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 验证用户身份
-	_, err := utils.GetUserIDFromRequest(r)
+// AddContact 添加联系人
+func (h *ContactHandler) AddContact(w http.ResponseWriter, r *http.Request) {
+	// 获取当前用户ID
+	userID, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
 	}
 
 	// 解析请求体
-	var req SearchUserRequest
+	var req struct {
+		ContactID int `json:"contact_id"`
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "无效的请求数据", http.StatusBadRequest)
+		http.Error(w, "无效的请求格式", http.StatusBadRequest)
 		return
 	}
 
-	// 设置默认值
-	if req.Limit <= 0 {
-		req.Limit = 20
+	// 验证联系人ID
+	if req.ContactID <= 0 {
+		http.Error(w, "无效的联系人ID", http.StatusBadRequest)
+		return
 	}
 
-	// 搜索用户
-	users, err := h.contactService.SearchUsers(req.Query, req.Offset, req.Limit)
+	// 添加联系人
+	err = h.contactService.AddContact(userID, req.ContactID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		// 检查是否是已存在的联系人
+		if strings.Contains(err.Error(), "已经是联系人") {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, "添加联系人失败: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// 返回用户列表
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	// 返回成功
+	w.WriteHeader(http.StatusCreated)
+}
+
+// RemoveContact 移除联系人
+func (h *ContactHandler) RemoveContact(w http.ResponseWriter, r *http.Request) {
+	// 获取当前用户ID
+	userID, err := GetUserIDFromContext(r.Context())
+	if err != nil {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
+
+	// 解析请求体
+	var req struct {
+		ContactID int `json:"contact_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "无效的请求格式", http.StatusBadRequest)
+		return
+	}
+
+	// 验证联系人ID
+	if req.ContactID <= 0 {
+		http.Error(w, "无效的联系人ID", http.StatusBadRequest)
+		return
+	}
+
+	// 移除联系人
+	err = h.contactService.RemoveContact(userID, req.ContactID)
+	if err != nil {
+		http.Error(w, "移除联系人失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 返回成功
+	w.WriteHeader(http.StatusOK)
 }

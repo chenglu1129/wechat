@@ -117,8 +117,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       
-      if (authProvider.user != null) {
+      if (authProvider.user != null && authProvider.token != null) {
         await chatProvider.sendGroupMessage(
+          token: authProvider.token!,
           groupId: widget.group.id,
           content: content,
           type: MessageType.text,
@@ -126,6 +127,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         
         // 滚动到底部
         _scrollToBottom();
+      } else {
+        throw Exception('用户未登录或令牌无效');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -146,8 +149,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         });
         
         final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        
+        if (authProvider.token == null) {
+          throw Exception('用户未登录或令牌无效');
+        }
         
         await chatProvider.sendGroupMediaMessage(
+          token: authProvider.token!,
           groupId: widget.group.id,
           file: File(image.path),
           type: MessageType.image,
@@ -175,8 +184,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         
         final file = File(result.files.single.path!);
         final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        
+        if (authProvider.token == null) {
+          throw Exception('用户未登录或令牌无效');
+        }
         
         await chatProvider.sendGroupMediaMessage(
+          token: authProvider.token!,
           groupId: widget.group.id,
           file: file,
           type: MessageType.file,
@@ -221,9 +236,9 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         await chatProvider.loadGroupMessages(authProvider.token!, widget.group.id);
         print('群组消息加载完成');
         
-        // 滚动到底部
+        // 只有当有消息且滚动控制器已附加时才滚动到底部
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
+          if (_scrollController.hasClients && chatProvider.currentMessages.isNotEmpty) {
             _scrollController.animateTo(
               _scrollController.position.maxScrollExtent,
               duration: const Duration(milliseconds: 300),
@@ -233,11 +248,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
         });
       } catch (e) {
         print('加载群组消息失败: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('加载消息失败: $e')),
-          );
-        }
+        // 即使加载失败，也不显示错误提示，而是显示空消息列表
+        // 这样用户体验会更好
       }
     }
   }

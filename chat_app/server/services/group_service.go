@@ -139,3 +139,12 @@ func (s *GroupService) SaveGroupAvatar(file multipart.File, filename string) (st
 	// 返回可访问的URL
 	return s.serverBaseURL + "/uploads/group_avatars/" + newFilename, nil
 }
+
+// GetGroupMemberCount 获取群组成员数量
+func (s *GroupService) GetGroupMemberCount(groupID int) (int, error) {
+	members, err := s.groupMemberRepo.GetMembers(groupID)
+	if err != nil {
+		return 0, err
+	}
+	return len(members), nil
+}

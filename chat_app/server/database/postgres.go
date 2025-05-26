@@ -3,9 +3,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	
+
 	"chat_app/server/config"
-	
+
 	_ "github.com/lib/pq"
 )
 
@@ -18,17 +18,17 @@ type PostgresDB struct {
 func NewPostgresDB(config *config.PostgresConfig) (*PostgresDB, error) {
 	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		config.Host, config.Port, config.User, config.Password, config.DBName, config.SSLMode)
-	
+
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 测试连接
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
-	
+
 	return &PostgresDB{DB: db}, nil
 }
 
@@ -46,13 +46,14 @@ func (p *PostgresDB) InitSchema() error {
 		username VARCHAR(50) UNIQUE NOT NULL,
 		email VARCHAR(100) UNIQUE NOT NULL,
 		password_hash VARCHAR(100) NOT NULL,
+		avatar_url VARCHAR(255),
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	)`)
 	if err != nil {
 		return err
 	}
-	
+
 	// 创建联系人表
 	_, err = p.DB.Exec(`
 	CREATE TABLE IF NOT EXISTS contacts (
@@ -65,7 +66,7 @@ func (p *PostgresDB) InitSchema() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 创建群组表
 	_, err = p.DB.Exec(`
 	CREATE TABLE IF NOT EXISTS groups (
@@ -78,7 +79,7 @@ func (p *PostgresDB) InitSchema() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 创建群组成员表
 	_, err = p.DB.Exec(`
 	CREATE TABLE IF NOT EXISTS group_members (
@@ -89,6 +90,6 @@ func (p *PostgresDB) InitSchema() error {
 		joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(group_id, user_id)
 	)`)
-	
+
 	return err
-} 
+}

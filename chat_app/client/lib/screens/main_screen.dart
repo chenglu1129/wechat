@@ -44,7 +44,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     
     // 确保用户已登录
     if (authProvider.token != null && authProvider.user != null) {
-      print('用户已登录，加载聊天列表和连接WebSocket');
+      print('用户已登录，ID: ${authProvider.user!.id}，加载聊天列表和连接WebSocket');
       
       try {
         // 连接WebSocket
@@ -57,7 +57,12 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         await _loadChats();
         
         // 加载群组列表
+        print('开始加载群组列表...');
         await groupProvider.loadUserGroups();
+        print('群组列表加载完成，共${groupProvider.groups.length}个群组');
+        for (var group in groupProvider.groups) {
+          print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+        }
       } catch (e) {
         print('初始化应用时发生错误: $e');
         // 显示错误提示，但不中断流程

@@ -81,10 +81,22 @@ func (h *GroupHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 返回创建的群组信息
+	// 计算成员数量（创建者 + 成员）
+	memberCount := len(req.MemberIDs) + 1
+
+	// 返回创建的群组信息，包括成员数量
+	response := map[string]interface{}{
+		"id":           group.ID,
+		"name":         group.Name,
+		"created_by":   group.CreatedBy,
+		"created_at":   group.CreatedAt,
+		"updated_at":   group.UpdatedAt,
+		"member_count": memberCount,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(group)
+	json.NewEncoder(w).Encode(response)
 }
 
 // GetUserGroups 获取用户加入的群组
@@ -103,9 +115,28 @@ func (h *GroupHandler) GetUserGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 为每个群组添加成员数量
+	var response []map[string]interface{}
+	for _, group := range groups {
+		memberCount, err := h.groupService.GetGroupMemberCount(group.ID)
+		if err != nil {
+			http.Error(w, "获取群组成员数量失败: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		response = append(response, map[string]interface{}{
+			"id":           group.ID,
+			"name":         group.Name,
+			"created_by":   group.CreatedBy,
+			"created_at":   group.CreatedAt,
+			"updated_at":   group.UpdatedAt,
+			"member_count": memberCount,
+		})
+	}
+
 	// 返回群组列表
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(groups)
+	json.NewEncoder(w).Encode(response)
 }
 
 // GetGroupInfo 获取群组信息
@@ -125,9 +156,26 @@ func (h *GroupHandler) GetGroupInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取群组成员数量
+	memberCount, err := h.groupService.GetGroupMemberCount(groupID)
+	if err != nil {
+		http.Error(w, "获取群组成员数量失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 将成员数量添加到响应中
+	response := map[string]interface{}{
+		"id":           group.ID,
+		"name":         group.Name,
+		"created_by":   group.CreatedBy,
+		"created_at":   group.CreatedAt,
+		"updated_at":   group.UpdatedAt,
+		"member_count": memberCount,
+	}
+
 	// 返回群组信息
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(group)
+	json.NewEncoder(w).Encode(response)
 }
 
 // UpdateGroup 更新群组信息
@@ -476,7 +524,7 @@ func (h *GroupHandler) LeaveGroup(w http.ResponseWriter, r *http.Request) {
 // UploadGroupAvatar 上传群组头像
 func (h *GroupHandler) UploadGroupAvatar(w http.ResponseWriter, r *http.Request) {
 	// 获取当前用户ID
-	userID, err := GetUserIDFromContext(r.Context())
+	_, err := GetUserIDFromContext(r.Context())
 	if err != nil {
 		http.Error(w, "未授权", http.StatusUnauthorized)
 		return
