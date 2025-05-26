@@ -12,19 +12,24 @@ import 'screens/profile_screen.dart';
 import 'screens/friend_requests_screen.dart';
 import 'screens/change_password_screen.dart';
 import 'screens/notification_settings_screen.dart';
+import 'screens/create_group_screen.dart';
+import 'screens/group_info_screen.dart';
 import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/contact_provider.dart';
 import 'providers/friend_request_provider.dart';
+import 'providers/group_provider.dart';
 import 'services/contact_service.dart';
 import 'services/friend_request_service.dart';
 import 'services/notification_service.dart';
 import 'services/media_service.dart';
+import 'services/group_service.dart';
 import 'utils/app_routes.dart';
 import 'utils/token_manager.dart';
 import 'models/user.dart';
 import 'models/chat.dart';
+import 'models/group.dart';
 
 // 全局导航键，用于在通知服务中导航
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -57,10 +62,12 @@ class MyApp extends StatelessWidget {
     final tokenManager = TokenManager();
     final contactService = ContactService(tokenManager: tokenManager);
     final friendRequestService = FriendRequestService(tokenManager: tokenManager);
+    final groupService = GroupService(tokenManager: tokenManager);
     final authProvider = AuthProvider(tokenManager: tokenManager);
     final chatProvider = ChatProvider();
     final contactProvider = ContactProvider(contactService: contactService);
     final friendRequestProvider = FriendRequestProvider(friendRequestService: friendRequestService);
+    final groupProvider = GroupProvider(groupService: groupService);
     final mediaService = MediaService(tokenManager: tokenManager);
     
     // 监听登录状态变化，连接/断开WebSocket
@@ -80,6 +87,9 @@ class MyApp extends StatelessWidget {
             fcmToken,
           );
         }
+        
+        // 加载用户的群组列表
+        groupProvider.loadUserGroups();
       } else {
         // 登出，断开WebSocket
         chatProvider.disconnectWebSocket();
@@ -119,6 +129,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => chatProvider),
         ChangeNotifierProvider(create: (_) => contactProvider),
         ChangeNotifierProvider(create: (_) => friendRequestProvider),
+        ChangeNotifierProvider(create: (_) => groupProvider),
         Provider<MediaService>(create: (_) => mediaService),
       ],
       child: Consumer<ThemeProvider>(
@@ -142,6 +153,7 @@ class MyApp extends StatelessWidget {
               AppRoutes.friendRequests: (context) => const FriendRequestsScreen(),
               AppRoutes.changePassword: (context) => const ChangePasswordScreen(),
               AppRoutes.notificationSettings: (context) => const NotificationSettingsScreen(),
+              AppRoutes.createGroup: (context) => const CreateGroupScreen(),
             },
             // 处理命名路由中传递复杂参数
             onGenerateRoute: (settings) {
@@ -155,25 +167,39 @@ class MyApp extends StatelessWidget {
                   );
                 } else if (args is Chat) {
                   // 如果参数是Chat对象
-                  // 从Chat对象中提取必要信息，创建一个临时User对象
-                  final chatId = args.id;
-                  final parts = chatId.split('_');
-                  if (parts.length == 2 && parts[0] == 'private') {
-                    final userId = int.tryParse(parts[1]);
-                    if (userId != null) {
-                      final tempUser = User(
-                        id: userId,
-                        username: args.name,
-                        email: 'unknown@example.com', // 临时值
-                        avatarUrl: args.avatarUrl,
-                        isOnline: args.isOnline,
-                      );
-                      return MaterialPageRoute(
-                        builder: (context) => ChatScreen(user: tempUser),
-                      );
+                  if (args.type == ChatType.private) {
+                    // 私聊
+                    final chatId = args.id;
+                    final parts = chatId.split('_');
+                    if (parts.length == 2 && parts[0] == 'private') {
+                      final userId = int.tryParse(parts[1]);
+                      if (userId != null) {
+                        final tempUser = User(
+                          id: userId,
+                          username: args.name,
+                          email: 'unknown@example.com', // 临时值
+                          avatarUrl: args.avatarUrl,
+                          isOnline: args.isOnline,
+                        );
+                        return MaterialPageRoute(
+                          builder: (context) => ChatScreen(user: tempUser),
+                        );
+                      }
                     }
+                  } else if (args.type == ChatType.group) {
+                    // 群聊
+                    // TODO: 实现群聊界面
+                    // 暂时显示错误页面
+                    return MaterialPageRoute(
+                      builder: (context) => Scaffold(
+                        appBar: AppBar(title: const Text('群聊')),
+                        body: const Center(
+                          child: Text('群聊功能正在开发中'),
+                        ),
+                      ),
+                    );
                   }
-                  // 如果无法解析聊天ID或者是群聊，显示错误页面
+                  // 如果无法解析聊天ID，显示错误页面
                   return MaterialPageRoute(
                     builder: (context) => Scaffold(
                       appBar: AppBar(title: const Text('错误')),
@@ -216,6 +242,23 @@ class MyApp extends StatelessWidget {
                     builder: (context) => const ProfileScreen(),
                   );
                 }
+              } else if (settings.name == AppRoutes.groupInfo) {
+                // 处理群组信息页路由
+                if (settings.arguments != null) {
+                  final group = settings.arguments as Group;
+                  return MaterialPageRoute(
+                    builder: (context) => GroupInfoScreen(group: group),
+                  );
+                }
+                // 如果没有参数，显示错误页面
+                return MaterialPageRoute(
+                  builder: (context) => Scaffold(
+                    appBar: AppBar(title: const Text('错误')),
+                    body: const Center(
+                      child: Text('无法打开群组信息，参数格式不正确'),
+                    ),
+                  ),
+                );
               }
               return null;
             },

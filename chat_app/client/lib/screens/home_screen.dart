@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/group_provider.dart';
 import '../models/chat.dart';
+import '../models/group.dart';
 import '../utils/app_routes.dart';
 import '../utils/mock_websocket.dart';
 
@@ -34,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
     print('初始化应用...');
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    final groupProvider = Provider.of<GroupProvider>(context, listen: false);
     
     // 确保用户已登录
     if (authProvider.token != null && authProvider.user != null) {
@@ -48,6 +51,9 @@ class _HomeScreenState extends State<HomeScreen> {
         
         // 加载聊天列表
         await _loadChats();
+        
+        // 加载群组列表
+        await groupProvider.loadUserGroups();
         
         // 启动模拟服务
         _startMockService();
@@ -146,9 +152,11 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final groupProvider = Provider.of<GroupProvider>(context, listen: false);
 
       if (authProvider.token != null) {
         await chatProvider.loadChats(authProvider.token!);
+        await groupProvider.loadUserGroups();
       }
     } finally {
       if (mounted) {
@@ -156,6 +164,27 @@ class _HomeScreenState extends State<HomeScreen> {
           _isRefreshing = false;
         });
       }
+    }
+  }
+  
+  // 创建群组
+  Future<void> _createGroup() async {
+    final result = await Navigator.of(context).pushNamed(AppRoutes.createGroup);
+    
+    if (result != null && result is Group) {
+      // 创建成功，打开群组聊天页面
+      final chat = Chat(
+        id: 'group_${result.id}',
+        name: result.name,
+        avatarUrl: result.avatarUrl,
+        type: ChatType.group,
+      );
+      
+      // 跳转到群聊页面
+      Navigator.of(context).pushNamed(
+        AppRoutes.chat,
+        arguments: chat,
+      );
     }
   }
 
@@ -249,44 +278,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
             ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            builder: (ctx) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.person_add),
-                  title: const Text('添加联系人'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pushNamed(AppRoutes.contacts);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.group_add),
-                  title: const Text('创建群组'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).pushNamed(AppRoutes.createGroup);
-                  },
-                ),
-              ],
-            ),
-          );
-        },
-        child: const Icon(Icons.add),
+        onPressed: _createGroup,
+        tooltip: '创建群组',
+        child: const Icon(Icons.group_add),
       ),
     );
   }
 }
 
 // 聊天搜索代理
-class ChatSearchDelegate extends SearchDelegate<String> {
+class ChatSearchDelegate extends SearchDelegate<Chat> {
   final List<Chat> chats;
-  
+
   ChatSearchDelegate(this.chats);
-  
+
   @override
   List<Widget> buildActions(BuildContext context) {
     return [
@@ -298,168 +303,286 @@ class ChatSearchDelegate extends SearchDelegate<String> {
       ),
     ];
   }
-  
+
   @override
   Widget buildLeading(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.arrow_back),
       onPressed: () {
-        close(context, '');
+        close(context, chats.first);
       },
     );
   }
-  
+
   @override
   Widget buildResults(BuildContext context) {
-    return _buildSearchResults();
+    return _buildSearchResults(context);
   }
-  
+
   @override
   Widget buildSuggestions(BuildContext context) {
-    return _buildSearchResults();
+    return _buildSearchResults(context);
   }
-  
-  Widget _buildSearchResults() {
-    final filteredChats = chats.where((chat) => 
-      chat.name.toLowerCase().contains(query.toLowerCase()) ||
-      (chat.lastMessage?.toLowerCase().contains(query.toLowerCase()) ?? false)
-    ).toList();
-    
-    if (filteredChats.isEmpty) {
-      return const Center(
-        child: Text('没有找到相关聊天'),
-      );
-    }
-    
-    return ListView.builder(
-      itemCount: filteredChats.length,
+
+  Widget _buildSearchResults(BuildContext context) {
+    final results = query.isEmpty
+        ? chats
+        : chats.where((chat) => chat.name.toLowerCase().contains(query.toLowerCase())).toList();
+
+    return ListView.separated(
+      itemCount: results.length,
+      separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        return ChatListItem(chat: filteredChats[index]);
+        final chat = results[index];
+        return ListTile(
+          leading: CircleAvatar(
+            backgroundImage: chat.avatarUrl != null ? NetworkImage(chat.avatarUrl!) : null,
+            child: chat.avatarUrl == null
+                ? Text(
+                    chat.name.isNotEmpty ? chat.name[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white),
+                  )
+                : null,
+          ),
+          title: Text(chat.name),
+          subtitle: Text(
+            chat.lastMessage ?? '暂无消息',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: chat.type == ChatType.group
+              ? const Icon(Icons.group)
+              : (chat.isOnline
+                  ? Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
+                      ),
+                    )
+                  : null),
+          onTap: () {
+            close(context, chat);
+            
+            // 设置当前聊天ID，用于标记消息已读
+            final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+            chatProvider.setCurrentChat(chat.id);
+            
+            // 导航到聊天页面
+            Navigator.of(context).pushNamed(
+              AppRoutes.chat,
+              arguments: chat,
+            );
+          },
+        );
       },
     );
   }
 }
 
+// 聊天列表项
 class ChatListItem extends StatelessWidget {
   final Chat chat;
 
   const ChatListItem({
-    super.key,
+    Key? key,
     required this.chat,
-  });
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final chatProvider = Provider.of<ChatProvider>(context);
+    
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            radius: 25,
-            backgroundImage: chat.avatarUrl != null
-                ? NetworkImage(chat.avatarUrl!)
-                : null,
-            child: chat.avatarUrl == null
-                ? Text(
-                    chat.name.isNotEmpty ? chat.name[0].toUpperCase() : '?',
-                    style: const TextStyle(fontSize: 18),
-                  )
-                : null,
-          ),
-          if (chat.isOnline && chat.type == ChatType.private)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: Colors.green,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    width: 2,
-                  ),
-                ),
-              ),
-            ),
-        ],
+      leading: CircleAvatar(
+        backgroundImage: chat.avatarUrl != null ? NetworkImage(chat.avatarUrl!) : null,
+        child: chat.avatarUrl == null
+            ? Text(
+                chat.name.isNotEmpty ? chat.name[0].toUpperCase() : '?',
+                style: const TextStyle(color: Colors.white),
+              )
+            : null,
       ),
       title: Row(
         children: [
-          Expanded(
-            child: Text(
-              chat.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+          Expanded(child: Text(chat.name)),
+          if (chat.lastMessageTime != null)
+            Text(
+              _formatTime(chat.lastMessageTime!),
+              style: TextStyle(
+                fontSize: 12,
+                color: chat.unreadCount > 0 ? Colors.blue : Colors.grey,
               ),
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            chat.formattedLastMessageTime,
-            style: TextStyle(
-              fontSize: 12,
-              color: chat.unreadCount > 0 ? Theme.of(context).primaryColor : Colors.grey,
-            ),
-          ),
         ],
       ),
       subtitle: Row(
         children: [
+          if (chat.isOnline && chat.type == ChatType.private)
+            Container(
+              width: 8,
+              height: 8,
+              margin: const EdgeInsets.only(right: 4),
+              decoration: const BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+              ),
+            ),
           Expanded(
-            child: chat.lastMessage != null
-                ? Text(
-                    chat.lastMessage!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: chat.unreadCount > 0 ? Colors.black87 : Colors.grey,
-                    ),
-                  )
-                : const Text(
-                    '[没有消息]',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
+            child: Text(
+              chat.lastMessage ?? '暂无消息',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           if (chat.unreadCount > 0)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 20,
-                minHeight: 20,
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Colors.blue,
+                shape: BoxShape.circle,
               ),
               child: Text(
                 chat.unreadCount.toString(),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 10,
                 ),
-                textAlign: TextAlign.center,
               ),
             ),
         ],
       ),
       onTap: () {
-        final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+        // 设置当前聊天ID，用于标记消息已读
         chatProvider.setCurrentChat(chat.id);
         
-        // 直接传递Chat对象
-        print('点击聊天项: ${chat.id}, 名称: ${chat.name}');
+        // 导航到聊天页面
         Navigator.of(context).pushNamed(
           AppRoutes.chat,
           arguments: chat,
         );
       },
+      onLongPress: () {
+        // 长按显示操作菜单
+        showModalBottomSheet(
+          context: context,
+          builder: (ctx) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (chat.type == ChatType.group)
+                ListTile(
+                  leading: const Icon(Icons.info),
+                  title: const Text('查看群组信息'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    // 导航到群组信息页面
+                    final groupId = chat.id.split('_')[1];
+                    final groupProvider = Provider.of<GroupProvider>(context, listen: false);
+                    final group = groupProvider.groups.firstWhere(
+                      (g) => g.id == groupId,
+                      orElse: () => throw Exception('未找到群组信息'),
+                    );
+                    Navigator.of(context).pushNamed(
+                      AppRoutes.groupInfo,
+                      arguments: group,
+                    );
+                  },
+                ),
+              ListTile(
+                leading: const Icon(Icons.delete),
+                title: const Text('删除聊天'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  // 显示确认对话框
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('删除聊天'),
+                      content: const Text('确定要删除此聊天吗？这将删除所有聊天记录。'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(),
+                          child: const Text('取消'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            // 删除聊天
+                            // TODO: 实现删除聊天功能
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('删除聊天功能尚未实现')),
+                            );
+                          },
+                          child: const Text('删除'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              if (chat.type == ChatType.group)
+                ListTile(
+                  leading: const Icon(Icons.exit_to_app),
+                  title: const Text('退出群组'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    // 显示确认对话框
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('退出群组'),
+                        content: const Text('确定要退出此群组吗？'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: const Text('取消'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(ctx).pop();
+                              // 退出群组
+                              final groupId = chat.id.split('_')[1];
+                              final groupProvider = Provider.of<GroupProvider>(context, listen: false);
+                              groupProvider.leaveGroup(groupId).then((_) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('已退出群组')),
+                                );
+                              }).catchError((error) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('退出群组失败: $error')),
+                                );
+                              });
+                            },
+                            child: const Text('退出'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
     );
+  }
+
+  String _formatTime(DateTime time) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final messageDate = DateTime(time.year, time.month, time.day);
+
+    if (messageDate == today) {
+      // 今天的消息只显示时间
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    } else if (messageDate == yesterday) {
+      // 昨天的消息显示"昨天"
+      return '昨天';
+    } else {
+      // 其他日期显示月/日
+      return '${time.month}/${time.day}';
+    }
   }
 } 
