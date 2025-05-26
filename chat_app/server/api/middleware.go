@@ -16,6 +16,15 @@ const (
 	UserIDKey contextKey = "user_id"
 )
 
+// GetUserIDFromContext 从上下文中获取用户ID
+func GetUserIDFromContext(ctx context.Context) (int, error) {
+	userID, ok := ctx.Value(utils.UserIDKey).(int)
+	if !ok {
+		return 0, http.ErrNotSupported
+	}
+	return userID, nil
+}
+
 // AuthMiddleware 认证中间件
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

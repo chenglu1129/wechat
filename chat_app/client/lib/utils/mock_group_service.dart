@@ -30,35 +30,72 @@ class MockGroupService {
           print('加载群组: ID=${group.id}, 名称=${group.name}');
         } catch (e) {
           print('解析群组JSON失败: $e');
+          print('原始JSON: $json');
         }
       }
     }
-    return groupsJson.map((json) => Group.fromJson(jsonDecode(json))).toList();
+    
+    try {
+      return groupsJson.map((json) => Group.fromJson(jsonDecode(json))).toList();
+    } catch (e) {
+      print('转换群组列表失败: $e');
+      return [];
+    }
   }
   
   // 保存群组列表到本地
   Future<void> _saveGroups(List<Group> groups) async {
     final prefs = await SharedPreferences.getInstance();
-    final groupsJson = groups.map((group) => jsonEncode(group.toJson())).toList();
+    final groupsJson = groups.map((group) {
+      final json = jsonEncode(group.toJson());
+      print('序列化群组: ID=${group.id}, 名称=${group.name}, JSON长度=${json.length}');
+      return json;
+    }).toList();
+    
     print('保存群组到本地存储: ${groups.length}个');
     for (var group in groups) {
-      print('保存群组: ID=${group.id}, 名称=${group.name}');
+      print('保存群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
     }
-    await prefs.setStringList(_groupsKey, groupsJson);
+    
+    try {
+      await prefs.setStringList(_groupsKey, groupsJson);
+      print('群组保存成功');
+    } catch (e) {
+      print('保存群组到本地存储失败: $e');
+    }
   }
   
   // 获取本地存储的群组成员列表
   Future<List<GroupMember>> _getGroupMembers() async {
     final prefs = await SharedPreferences.getInstance();
     final membersJson = prefs.getStringList(_groupMembersKey) ?? [];
-    return membersJson.map((json) => GroupMember.fromJson(jsonDecode(json))).toList();
+    print('从本地存储加载群组成员: ${membersJson.length}个');
+    
+    try {
+      return membersJson.map((json) => GroupMember.fromJson(jsonDecode(json))).toList();
+    } catch (e) {
+      print('转换群组成员列表失败: $e');
+      return [];
+    }
   }
   
   // 保存群组成员列表到本地
   Future<void> _saveGroupMembers(List<GroupMember> members) async {
     final prefs = await SharedPreferences.getInstance();
-    final membersJson = members.map((member) => jsonEncode(member.toJson())).toList();
-    await prefs.setStringList(_groupMembersKey, membersJson);
+    final membersJson = members.map((member) {
+      final json = jsonEncode(member.toJson());
+      print('序列化群组成员: 群组ID=${member.groupId}, 用户ID=${member.user.id}, JSON长度=${json.length}');
+      return json;
+    }).toList();
+    
+    print('保存群组成员到本地存储: ${members.length}个');
+    
+    try {
+      await prefs.setStringList(_groupMembersKey, membersJson);
+      print('群组成员保存成功');
+    } catch (e) {
+      print('保存群组成员到本地存储失败: $e');
+    }
   }
   
   // 创建群组
@@ -67,6 +104,8 @@ class MockGroupService {
     required List<int> memberIds,
     File? avatarFile,
   }) async {
+    print('开始创建群组: $name, 成员IDs: $memberIds');
+    
     // 生成随机ID
     final id = DateTime.now().millisecondsSinceEpoch.toString();
     
@@ -139,11 +178,31 @@ class MockGroupService {
     print('创建群组成功: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
     print('当前存储的群组数量: ${groups.length}');
     
+    // 验证保存是否成功
+    _verifyGroupSaved(group.id);
+    
     return group;
+  }
+  
+  // 验证群组是否成功保存
+  Future<void> _verifyGroupSaved(String groupId) async {
+    // 延迟一秒，确保保存完成
+    await Future.delayed(Duration(seconds: 1));
+    
+    final groups = await _getGroups();
+    final foundGroup = groups.any((g) => g.id == groupId);
+    
+    if (foundGroup) {
+      print('验证成功: 群组 $groupId 已正确保存到本地存储');
+    } else {
+      print('验证失败: 群组 $groupId 未能保存到本地存储');
+    }
   }
   
   // 获取群组信息
   Future<Group> getGroupInfo(String groupId) async {
+    print('获取群组信息: ID=$groupId');
+    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -153,13 +212,22 @@ class MockGroupService {
       orElse: () => throw Exception('群组不存在'),
     );
     
+    print('获取到群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+    
     return group;
   }
   
   // 获取用户加入的群组列表
   Future<List<Group>> getUserGroups() async {
+    print('获取用户群组列表');
+    
     // 获取群组列表
     final groups = await _getGroups();
+    
+    print('获取到 ${groups.length} 个群组');
+    for (var group in groups) {
+      print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+    }
     
     // 模拟：返回所有群组（实际应该根据用户ID过滤）
     return groups;
@@ -172,6 +240,8 @@ class MockGroupService {
     String? announcement,
     File? avatarFile,
   }) async {
+    print('更新群组信息: ID=$groupId, 名称=$name, 公告=$announcement');
+    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -209,22 +279,30 @@ class MockGroupService {
     // 保存群组列表
     await _saveGroups(groups);
     
+    print('群组更新成功: ID=${updatedGroup.id}, 名称=${updatedGroup.name}');
+    
     return updatedGroup;
   }
   
   // 获取群组成员列表
   Future<List<GroupMember>> getGroupMembers(String groupId) async {
+    print('获取群组成员列表: 群组ID=$groupId');
+    
     // 获取群组成员列表
     final allMembers = await _getGroupMembers();
     
     // 过滤指定群组的成员
     final members = allMembers.where((m) => m.groupId == groupId).toList();
     
+    print('获取到 ${members.length} 个群组成员');
+    
     return members;
   }
   
   // 邀请用户加入群组
   Future<void> inviteMembers(String groupId, List<int> userIds) async {
+    print('邀请用户加入群组: 群组ID=$groupId, 用户IDs=$userIds');
+    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);
@@ -269,10 +347,14 @@ class MockGroupService {
     
     // 保存群组成员
     await _saveGroupMembers(members);
+    
+    print('邀请成员成功，当前群组成员数: ${updatedGroup.memberCount}');
   }
   
   // 移除群组成员
   Future<void> removeMember(String groupId, int userId) async {
+    print('移除群组成员: 群组ID=$groupId, 用户ID=$userId');
+    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);
@@ -305,19 +387,27 @@ class MockGroupService {
     
     // 保存群组成员
     await _saveGroupMembers(members);
+    
+    print('移除成员成功，当前群组成员数: ${updatedGroup.memberCount}');
   }
   
   // 退出群组
   Future<void> leaveGroup(String groupId) async {
+    print('退出群组: ID=$groupId');
+    
     // 获取当前用户ID（假设为1）
     final currentUserId = 1;
     
     // 调用移除成员方法
     await removeMember(groupId, currentUserId);
+    
+    print('退出群组成功');
   }
   
   // 解散群组
   Future<void> disbandGroup(String groupId) async {
+    print('解散群组: ID=$groupId');
+    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -335,10 +425,14 @@ class MockGroupService {
     
     // 保存群组成员
     await _saveGroupMembers(members);
+    
+    print('解散群组成功');
   }
   
   // 设置/取消管理员
   Future<void> setAdmin(String groupId, int userId, bool isAdmin) async {
+    print('设置管理员: 群组ID=$groupId, 用户ID=$userId, 是否为管理员=$isAdmin');
+    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);
@@ -391,6 +485,8 @@ class MockGroupService {
       // 保存群组成员
       await _saveGroupMembers(members);
     }
+    
+    print('设置管理员成功，当前管理员数量: ${adminIds.length}');
   }
   
   // 将头像保存到本地并返回路径
@@ -408,6 +504,8 @@ class MockGroupService {
       
       // 复制文件
       await imageFile.copy(filePath);
+      
+      print('头像保存成功: $filePath');
       
       // 返回本地路径
       return 'file://$filePath';

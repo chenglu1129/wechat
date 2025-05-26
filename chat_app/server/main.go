@@ -109,6 +109,12 @@ func main() {
 		notificationService = services.NewNotificationService(redisDB.Client)
 	}
 
+	// 初始化群组服务和处理器
+	groupRepo := database.NewSQLGroupRepository(postgresDB.DB)
+	groupMemberRepo := database.NewSQLGroupMemberRepository(postgresDB.DB)
+	groupService := services.NewGroupService(groupRepo, groupMemberRepo, "uploads", fmt.Sprintf("http://localhost:%d", cfg.Server.Port))
+	groupHandler := api.NewGroupHandler(groupService)
+
 	// 初始化API
 	apiHandler := api.NewAPI(userService, contactService, notificationService)
 
@@ -145,6 +151,11 @@ func main() {
 	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.DeleteFCMToken))).Methods("DELETE")
 	router.Handle("/notifications/test/{user_id}", api.AuthMiddleware(http.HandlerFunc(apiHandler.TestSendNotification))).Methods("POST")
 
+	// 群组路由（带认证）
+	groupRouter := router.PathPrefix("").Subrouter()
+	groupRouter.Use(api.AuthMiddleware)
+	groupHandler.RegisterRoutes(groupRouter)
+
 	// 媒体路由
 	router.Handle("/media/upload", api.AuthMiddleware(http.HandlerFunc(apiHandler.UploadMedia))).Methods("POST")
 	router.HandleFunc("/media/{type}/{filename}", apiHandler.GetMedia).Methods("GET")
@@ -154,6 +165,7 @@ func main() {
 
 	// 创建上传目录
 	os.MkdirAll("uploads", 0755)
+	os.MkdirAll("uploads/group_avatars", 0755)
 
 	// 添加CORS和日志中间件
 	handler := api.CORSMiddleware(api.LoggingMiddleware(router))

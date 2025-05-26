@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/group_provider.dart';
-import '../utils/mock_websocket.dart';
 import '../utils/app_routes.dart';
 import 'home_screen.dart';
 import 'contacts_screen.dart';
@@ -26,7 +25,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   ];
   
   final List<String> _titles = ['聊天', '联系人', '我的'];
-  MockWebSocketService? _mockWebSocketService;
   
   @override
   void initState() {
@@ -60,9 +58,6 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         
         // 加载群组列表
         await groupProvider.loadUserGroups();
-        
-        // 不再启动模拟服务，使用真实API
-        // _startMockService();
       } catch (e) {
         print('初始化应用时发生错误: $e');
         // 显示错误提示，但不中断流程
@@ -99,19 +94,11 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
-    _mockWebSocketService?.stopMockService();
-    
     // 断开WebSocket连接
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     chatProvider.disconnectWebSocket();
     
     super.dispose();
-  }
-  
-  void _startMockService() {
-    // 创建并启动模拟WebSocket服务
-    _mockWebSocketService = MockWebSocketService(context);
-    _mockWebSocketService!.startMockService();
   }
 
   Future<void> _loadChats() async {
