@@ -145,4 +145,35 @@ class Message {
   
   // 是否为自己发送的消息
   bool isSentByMe(String currentUserId) => senderId == currentUserId;
+  
+  // 创建消息的副本，可以修改部分属性
+  Message copyWith({
+    String? id,
+    String? senderId,
+    String? receiverId,
+    String? groupId,
+    MessageType? type,
+    String? content,
+    String? mediaUrl,
+    DateTime? timestamp,
+    bool? read,
+    Map<String, dynamic>? metadata,
+    String? senderName,
+    String? senderAvatar,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      senderId: senderId ?? this.senderId,
+      receiverId: receiverId ?? this.receiverId,
+      groupId: groupId ?? this.groupId,
+      type: type ?? this.type,
+      content: content ?? this.content,
+      mediaUrl: mediaUrl ?? this.mediaUrl,
+      timestamp: timestamp ?? this.timestamp,
+      read: read ?? this.read,
+      metadata: metadata ?? this.metadata,
+      senderName: senderName ?? this.senderName,
+      senderAvatar: senderAvatar ?? this.senderAvatar,
+    );
+  }
 } 

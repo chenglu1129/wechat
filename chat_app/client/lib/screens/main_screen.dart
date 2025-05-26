@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/group_provider.dart';
+import '../providers/contact_provider.dart';
 import '../utils/app_routes.dart';
 import 'home_screen.dart';
 import 'contacts_screen.dart';
@@ -18,6 +19,11 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
+  bool _isInitializing = false;
+  late AuthProvider _authProvider;
+  late ChatProvider _chatProvider;
+  late ContactProvider _contactProvider;
+  
   final List<Widget> _pages = [
     const HomeScreen(),
     const ContactsScreen(),
@@ -32,68 +38,71 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     
     // 使用addPostFrameCallback确保在构建完成后才加载数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeProviders();
       _initializeApp();
     });
   }
+  
+  void _initializeProviders() {
+    _authProvider = Provider.of<AuthProvider>(context, listen: false);
+    _chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    _contactProvider = Provider.of<ContactProvider>(context, listen: false);
+  }
 
   Future<void> _initializeApp() async {
-    print('初始化应用...');
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final groupProvider = Provider.of<GroupProvider>(context, listen: false);
-    
-    // 确保用户已登录
-    if (authProvider.token != null && authProvider.user != null) {
-      print('用户已登录，ID: ${authProvider.user!.id}，加载聊天列表和连接WebSocket');
-      
-      try {
-        // 连接WebSocket
-        chatProvider.connectWebSocket(
-          authProvider.token!,
-          authProvider.user!.id.toString(),
-        );
-        
-        // 加载聊天列表
-        await _loadChats();
-        
-        // 加载群组列表
-        print('开始加载群组列表...');
-        await groupProvider.loadUserGroups();
-        print('群组列表加载完成，共${groupProvider.groups.length}个群组');
-        for (var group in groupProvider.groups) {
-          print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
-        }
-      } catch (e) {
-        print('初始化应用时发生错误: $e');
-        // 显示错误提示，但不中断流程
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('初始化应用时发生错误: $e'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: '重试',
-              onPressed: () {
-                _initializeApp();
-              },
-            ),
-          ),
-        );
+    setState(() {
+      _isInitializing = true;
+    });
+
+    try {
+      // 获取token
+      final token = await _authProvider.token;
+      if (token == null) {
+        // 如果没有token，导航到登录页面
+        Navigator.of(context).pushReplacementNamed('/login');
+        return;
       }
-    } else {
-      print('用户未登录，尝试从本地存储加载用户数据');
-      // 用户可能未完全初始化，等待一下再尝试
-      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 加载用户信息
+      await _authProvider.refreshUserProfile();
       
-      // 重新检查用户状态
-      if (authProvider.token != null && authProvider.user != null) {
-        print('用户数据已加载，初始化应用');
-        _initializeApp();
-      } else {
-        print('用户仍未登录，跳转到登录页面');
-        // 如果用户仍未登录，可能需要跳转到登录页面
-        Navigator.of(context).pushReplacementNamed(AppRoutes.login);
+      // 确保用户ID有效
+      if (_authProvider.user == null || _authProvider.user!.id <= 0) {
+        print('用户信息无效，无法初始化WebSocket');
+        Navigator.of(context).pushReplacementNamed('/login');
+        return;
       }
+      
+      // 连接WebSocket
+      _chatProvider.connectWebSocket(
+        token,
+        _authProvider.user!.id.toString(),
+      );
+      print('WebSocket已连接，用户ID: ${_authProvider.user!.id}');
+      
+      // 加载联系人列表
+      await _contactProvider.loadContacts();
+      
+      // 加载聊天列表
+      await _chatProvider.loadChats(token);
+      
+      // 如果有聊天记录，自动切换到聊天Tab
+      if (_chatProvider.chats.isNotEmpty) {
+        setState(() {
+          _currentIndex = 0; // 聊天Tab的索引
+        });
+        print('找到${_chatProvider.chats.length}个聊天记录，自动切换到聊天Tab');
+      }
+      
+    } catch (e) {
+      print('初始化应用时出错: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载数据时出错，请稍后再试')),
+      );
+    } finally {
+      setState(() {
+        _isInitializing = false;
+      });
     }
   }
 

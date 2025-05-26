@@ -17,10 +17,12 @@ import '../utils/token_manager.dart';
 
 class ChatScreen extends StatefulWidget {
   final User user;
+  final String chatId;
   
   const ChatScreen({
     Key? key,
     required this.user,
+    required this.chatId,
   }) : super(key: key);
 
   @override
@@ -39,8 +41,65 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // 获取聊天ID
+    _chatId = widget.chatId;
+    
+    // 获取当前用户认证信息
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      
+      print('初始化聊天屏幕，聊天ID: $_chatId, 用户令牌: ${authProvider.token != null ? '有效' : '无效'}');
+      
+      if (authProvider.token != null && _chatId != null) {
+        print('开始加载聊天消息，聊天ID: $_chatId');
+        chatProvider.loadMessages(authProvider.token!, _chatId!);
+        
+        // 确保WebSocket已连接
+        if (authProvider.user != null) {
+          chatProvider.connectWebSocket(
+            authProvider.token!,
+            authProvider.user!.id.toString(),
+          );
+          print('确保WebSocket连接，用户ID: ${authProvider.user!.id}');
+        }
+      } else {
+        print('无法加载消息，令牌或聊天ID为空');
+      }
+      
+      // 设置当前聊天
+      if (_chatId != null) {
+        chatProvider.setCurrentChat(_chatId!);
+      }
+      
+      // 设置消息接收回调
+      chatProvider.onMessageReceived = (message) {
+        print('收到新消息: ${message.content}');
+        
+        // 如果消息属于当前聊天，滚动到底部
+        if (_chatId != null) {
+          final chatId = message.isGroupMessage
+              ? 'group_${message.groupId}'
+              : 'private_${message.senderId}';
+              
+          if (chatId == _chatId) {
+            // 滚动到底部
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (_scrollController.hasClients) {
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
+              }
+            });
+          }
+        }
+      };
+    });
+    
     _contact = widget.user; // 初始化联系人
-    _initChat();
     _scrollController.addListener(_onScroll);
     
     // 如果联系人信息不完整，尝试加载完整信息
@@ -51,6 +110,10 @@ class _ChatScreenState extends State<ChatScreen> {
   
   @override
   void dispose() {
+    // 清除消息接收回调
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    chatProvider.onMessageReceived = null;
+    
     _messageController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
@@ -108,42 +171,6 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       }
     }
-  }
-  
-  void _initChat() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-      
-      if (authProvider.token != null) {
-        // 构建聊天ID
-        _chatId = 'private_${widget.user.id}';
-        
-        // 设置当前聊天
-        chatProvider.setCurrentChat(_chatId!);
-        
-        // 加载消息历史
-        chatProvider.loadMessages(authProvider.token!, _chatId!);
-        
-        // 确保此聊天添加到聊天列表中
-        // 如果没有消息历史，创建一个空的聊天项
-        final existingChat = chatProvider.chats.firstWhere(
-          (chat) => chat.id == _chatId,
-          orElse: () => Chat(
-            id: _chatId!,
-            name: widget.user.username,
-            avatarUrl: widget.user.avatarUrl,
-            type: ChatType.private,
-            isOnline: widget.user.isOnline,
-          ),
-        );
-        
-        // 如果是新聊天，添加到列表中
-        if (!chatProvider.chats.any((chat) => chat.id == _chatId)) {
-          chatProvider.addChat(existingChat);
-        }
-      }
-    });
   }
   
   void _onScroll() {

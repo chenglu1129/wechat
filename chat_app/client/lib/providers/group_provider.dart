@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/group.dart';
 import '../models/user.dart';
@@ -44,6 +45,9 @@ class GroupProvider with ChangeNotifier {
       print('成功加载了 ${_groups.length} 个群组');
       for (var group in _groups) {
         print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}, 拥有者=${group.ownerId}');
+        
+        // 保存群组元数据到本地存储
+        await _saveGroupMetadata(group);
       }
       notifyListeners();
     } catch (e) {
@@ -51,6 +55,19 @@ class GroupProvider with ChangeNotifier {
       _setError('加载群组列表失败: $e');
     } finally {
       _setLoading(false);
+    }
+  }
+  
+  // 保存群组元数据到本地存储
+  Future<void> _saveGroupMetadata(Group group) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('group_name_${group.id}', group.name);
+      if (group.avatarUrl != null) {
+        await prefs.setString('group_avatar_${group.id}', group.avatarUrl!);
+      }
+    } catch (e) {
+      print('保存群组元数据失败: $e');
     }
   }
   

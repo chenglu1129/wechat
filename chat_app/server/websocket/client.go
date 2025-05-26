@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"log"
 	"time"
-	
+
 	"github.com/gorilla/websocket"
 )
 
@@ -40,7 +40,7 @@ type Client struct {
 
 	// 缓冲的发送消息通道
 	send chan []byte
-	
+
 	// 用户ID
 	userID string
 }
@@ -61,14 +61,14 @@ func (c *Client) ReadPump() {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
-	
+
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { 
+	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		return nil 
+		return nil
 	})
-	
+
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -78,6 +78,19 @@ func (c *Client) ReadPump() {
 			break
 		}
 		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+
+		// 打印接收到的消息
+		log.Printf("从用户 %s 接收到消息: %s", c.userID, string(message))
+
+		// 检查是否是ping消息，如果是则回复pong
+		if bytes.Contains(message, []byte(`"type":"ping"`)) {
+			log.Printf("收到ping消息，发送pong回复")
+			pongMessage := []byte(`{"type":"pong","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`)
+			c.send <- pongMessage
+			continue
+		}
+
+		// 广播消息
 		c.hub.broadcast <- message
 	}
 }
@@ -89,7 +102,7 @@ func (c *Client) WritePump() {
 		ticker.Stop()
 		c.conn.Close()
 	}()
-	
+
 	for {
 		select {
 		case message, ok := <-c.send:
@@ -123,4 +136,4 @@ func (c *Client) WritePump() {
 			}
 		}
 	}
-} 
+}

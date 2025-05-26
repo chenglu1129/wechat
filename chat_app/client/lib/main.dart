@@ -169,7 +169,10 @@ class MyApp extends StatelessWidget {
                 if (args is User) {
                   // 如果参数是User对象
                   return MaterialPageRoute(
-                    builder: (context) => ChatScreen(user: args),
+                    builder: (context) => ChatScreen(
+                      user: args,
+                      chatId: 'private_${args.id}',
+                    ),
                   );
                 } else if (args is Chat) {
                   // 如果参数是Chat对象
@@ -188,7 +191,10 @@ class MyApp extends StatelessWidget {
                           isOnline: args.isOnline,
                         );
                         return MaterialPageRoute(
-                          builder: (context) => ChatScreen(user: tempUser),
+                          builder: (context) => ChatScreen(
+                            user: tempUser,
+                            chatId: chatId,
+                          ),
                         );
                       }
                     }
@@ -236,7 +242,10 @@ class MyApp extends StatelessWidget {
                   // 兼容旧的参数格式
                   final user = args['user'] as User;
                   return MaterialPageRoute(
-                    builder: (context) => ChatScreen(user: user),
+                    builder: (context) => ChatScreen(
+                      user: user,
+                      chatId: 'private_${user.id}',
+                    ),
                   );
                 }
                 // 如果参数格式不正确，显示错误页面

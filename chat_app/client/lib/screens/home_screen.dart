@@ -6,8 +6,11 @@ import '../providers/chat_provider.dart';
 import '../providers/group_provider.dart';
 import '../models/chat.dart';
 import '../models/group.dart';
+import '../models/user.dart';
 import '../utils/app_routes.dart';
 import '../widgets/chat_list_item.dart';
+import 'chat_screen.dart';
+import '../widgets/empty_state.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -40,7 +43,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (authProvider.token != null) {
         await chatProvider.loadChats(authProvider.token!);
         await groupProvider.loadUserGroups();
+        print('聊天列表已刷新，共${chatProvider.chats.length}个聊天');
       }
+    } catch (e) {
+      print('刷新聊天列表时出错: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('刷新聊天列表失败: $e')),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -73,8 +82,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final chatProvider = Provider.of<ChatProvider>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('聊天'),
@@ -85,138 +92,147 @@ class _HomeScreenState extends State<HomeScreen> {
               // 实现搜索功能
               showSearch(
                 context: context,
-                delegate: ChatSearchDelegate(chatProvider.chats),
+                delegate: ChatSearchDelegate(Provider.of<ChatProvider>(context).chats),
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isRefreshing ? null : _refreshChats,
+            tooltip: '刷新聊天列表',
+          ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refreshChats,
-        child: chatProvider.chats.isEmpty
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.chat_bubble_outline,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '没有聊天记录',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '点击右下角按钮开始聊天',
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            : ListView.builder(
-                itemCount: chatProvider.chats.length,
-                itemBuilder: (ctx, i) => ChatListItem(
-                  chat: chatProvider.chats[i],
-                  onTap: () {
-                    Navigator.of(context).pushNamed(
-                      AppRoutes.chat,
-                      arguments: chatProvider.chats[i],
-                    );
-                  },
-                  onLongPress: () {
-                    _showChatOptions(context, chatProvider.chats[i]);
-                  },
-                ),
+      body: Consumer<ChatProvider>(
+        builder: (context, chatProvider, child) {
+          if (chatProvider.isLoading) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+          
+          if (chatProvider.error != null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '加载聊天列表失败',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    chatProvider.error!,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _refreshChats,
+                    child: const Text('重试'),
+                  ),
+                ],
               ),
+            );
+          }
+          
+          final chats = chatProvider.chats;
+          
+          if (chats.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: _refreshChats,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    child: const EmptyState(
+                      icon: Icons.chat_bubble_outline,
+                      title: '暂无聊天',
+                      message: '您还没有任何聊天记录\n去联系人页面开始新的聊天吧',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          
+          return RefreshIndicator(
+            onRefresh: _refreshChats,
+            child: ListView.builder(
+              itemCount: chats.length,
+              itemBuilder: (context, index) {
+                final chat = chats[index];
+                return ChatListItem(
+                  chat: chat,
+                  onTap: () => _navigateToChatScreen(context, chat),
+                  onLongPress: () => _showChatOptions(context, chat),
+                );
+              },
+            ),
+          );
+        },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          _showChatOptions(context);
+          _showNewChatOptions(context);
         },
         child: const Icon(Icons.add),
       ),
     );
   }
 
-  void _showChatOptions(BuildContext context, [Chat? chat]) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) {
-        if (chat != null) {
-          // 显示聊天操作选项
-          return Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.push_pin),
-                  title: const Text('置顶聊天'),
-                  onTap: () {
-                    // 实现置顶聊天功能
-                    Navigator.of(ctx).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('置顶功能开发中')),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.delete, color: Colors.red),
-                  title: const Text('删除聊天', style: TextStyle(color: Colors.red)),
-                  onTap: () {
-                    // 实现删除聊天功能
-                    Navigator.of(ctx).pop();
-                    _showDeleteConfirmation(context, chat);
-                  },
-                ),
-              ],
-            ),
-          );
-        } else {
-          // 显示新建聊天选项
-          return Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.person_add),
-                  title: const Text('发起私聊'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    Navigator.of(context).pushNamed(AppRoutes.contacts);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.group_add),
-                  title: const Text('创建群聊'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _createGroup();
-                  },
-                ),
-              ],
-            ),
-          );
-        }
-      },
+  void _navigateToChatScreen(BuildContext context, Chat chat) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
+          chatId: chat.id,
+          user: User(
+            id: int.tryParse(chat.id.split('_').last) ?? 0,
+            username: chat.name,
+            email: 'unknown@example.com',
+            avatarUrl: chat.avatarUrl,
+            isOnline: chat.isOnline ?? false,
+          ),
+        ),
+      ),
     );
   }
 
-  void _showDeleteConfirmation(BuildContext context, Chat chat) {
+  void _showChatOptions(BuildContext context, Chat chat) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.delete),
+            title: const Text('删除聊天'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _confirmDeleteChat(context, chat);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.mark_chat_read),
+            title: const Text('标记为已读'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _markChatAsRead(context, chat);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _confirmDeleteChat(BuildContext context, Chat chat) async {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除聊天'),
-        content: const Text('确定要删除此聊天吗？聊天记录将会被清除。'),
+        content: Text('确定要删除与 ${chat.name} 的聊天吗？聊天记录将会被删除。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -224,13 +240,76 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           TextButton(
             onPressed: () {
-              // 实现删除聊天功能
               Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('删除功能开发中')),
-              );
+              _deleteChat(context, chat);
             },
-            child: const Text('删除', style: TextStyle(color: Colors.red)),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  void _deleteChat(BuildContext context, Chat chat) async {
+    try {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
+      if (authProvider.token != null) {
+        await chatProvider.deleteChat(authProvider.token!, chat.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已删除与 ${chat.name} 的聊天')),
+        );
+      }
+    } catch (e) {
+      print('删除聊天时出错: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除聊天失败: $e')),
+      );
+    }
+  }
+  
+  void _markChatAsRead(BuildContext context, Chat chat) async {
+    try {
+      final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
+      if (authProvider.token != null) {
+        await chatProvider.markChatAsRead(authProvider.token!, chat.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已将与 ${chat.name} 的聊天标记为已读')),
+        );
+      }
+    } catch (e) {
+      print('标记聊天为已读时出错: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('标记聊天为已读失败: $e')),
+      );
+    }
+  }
+
+  // 显示新建聊天选项
+  void _showNewChatOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.person_add),
+            title: const Text('发起私聊'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).pushNamed(AppRoutes.contacts);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.group_add),
+            title: const Text('创建群聊'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _createGroup();
+            },
           ),
         ],
       ),

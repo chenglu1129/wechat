@@ -295,11 +295,70 @@ func (h *GroupHandler) GetGroupMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 获取群组信息以确定群主
+	group, err := h.groupService.GetGroupByID(groupID)
+	if err != nil {
+		http.Error(w, "获取群组信息失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// 获取群组成员
-	members, err := h.groupService.GetGroupMembers(groupID)
+	users, err := h.groupService.GetGroupMembers(groupID)
 	if err != nil {
 		http.Error(w, "获取群组成员失败: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// 获取群组管理员列表
+	admins, err := h.groupService.GetGroupAdmins(groupID)
+	if err != nil {
+		http.Error(w, "获取群组管理员失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 构建管理员ID集合，方便查询
+	adminMap := make(map[int]bool)
+	for _, admin := range admins {
+		adminMap[admin.ID] = true
+	}
+
+	// 构建完整的成员信息列表
+	var members []map[string]interface{}
+	for _, user := range users {
+		// 确定用户角色
+		var role string
+		if user.ID == group.CreatedBy {
+			role = "owner"
+		} else if adminMap[user.ID] {
+			role = "admin"
+		} else {
+			role = "member"
+		}
+
+		// 获取加入时间
+		joinedAt := time.Now()
+		if user.Metadata != nil {
+			if joinedAtValue, ok := user.Metadata["joined_at"]; ok {
+				if joinedAtTime, ok := joinedAtValue.(time.Time); ok {
+					joinedAt = joinedAtTime
+				}
+			}
+		}
+
+		// 构建成员信息
+		member := map[string]interface{}{
+			"group_id": groupID,
+			"user": map[string]interface{}{
+				"id":         user.ID,
+				"username":   user.Username,
+				"email":      user.Email,
+				"avatar_url": user.AvatarURL,
+				"created_at": user.CreatedAt,
+			},
+			"role":      role,
+			"joined_at": joinedAt,
+		}
+		members = append(members, member)
 	}
 
 	// 返回成员列表

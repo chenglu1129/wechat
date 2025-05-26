@@ -237,7 +237,7 @@ func (r *SQLGroupMemberRepository) RemoveMember(groupID, userID int) error {
 // GetMembers 获取群组的所有成员
 func (r *SQLGroupMemberRepository) GetMembers(groupID int) ([]*models.User, error) {
 	query := `
-		SELECT u.id, u.username, u.email, u.avatar_url, u.created_at
+		SELECT u.id, u.username, u.email, u.avatar_url, u.created_at, gm.joined_at
 		FROM users u
 		JOIN group_members gm ON u.id = gm.user_id
 		WHERE gm.group_id = $1
@@ -255,6 +255,7 @@ func (r *SQLGroupMemberRepository) GetMembers(groupID int) ([]*models.User, erro
 	for rows.Next() {
 		user := &models.User{}
 		var avatarURL sql.NullString
+		var joinedAt time.Time
 
 		err := rows.Scan(
 			&user.ID,
@@ -262,6 +263,7 @@ func (r *SQLGroupMemberRepository) GetMembers(groupID int) ([]*models.User, erro
 			&user.Email,
 			&avatarURL,
 			&user.CreatedAt,
+			&joinedAt,
 		)
 
 		if err != nil {
@@ -271,6 +273,12 @@ func (r *SQLGroupMemberRepository) GetMembers(groupID int) ([]*models.User, erro
 		if avatarURL.Valid {
 			user.AvatarURL = avatarURL.String
 		}
+
+		// 将加入时间存储在用户的元数据中
+		if user.Metadata == nil {
+			user.Metadata = make(map[string]interface{})
+		}
+		user.Metadata["joined_at"] = joinedAt
 
 		users = append(users, user)
 	}

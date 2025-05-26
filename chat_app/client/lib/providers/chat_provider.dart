@@ -92,17 +92,40 @@ class ChatProvider extends ChangeNotifier {
         onError: (error) {
           _setError('WebSocket连接错误: $error');
           print('WebSocket错误: $error');
+          
+          // 尝试重新连接
+          Future.delayed(const Duration(seconds: 5), () {
+            print('尝试重新连接WebSocket...');
+            connectWebSocket(token, userId);
+          });
         },
         onDone: () {
           print('WebSocket连接关闭');
-          // 连接关闭，可以尝试重新连接
+          // 连接关闭，尝试重新连接
+          Future.delayed(const Duration(seconds: 5), () {
+            print('尝试重新连接WebSocket...');
+            connectWebSocket(token, userId);
+          });
         },
       );
+      
+      // 发送一个ping消息，测试连接
+      _channel?.sink.add(json.encode({
+        'type': 'ping',
+        'user_id': userId,
+        'timestamp': DateTime.now().toIso8601String(),
+      }));
       
       print('WebSocket连接成功');
     } catch (e) {
       print('WebSocket连接失败: $e');
       _setError('WebSocket连接失败: $e');
+      
+      // 尝试重新连接
+      Future.delayed(const Duration(seconds: 5), () {
+        print('尝试重新连接WebSocket...');
+        connectWebSocket(token, userId);
+      });
     }
   }
   
@@ -208,6 +231,9 @@ class ChatProvider extends ChangeNotifier {
         _chats.removeAt(existingChatIndex);
         _chats.insert(0, updatedChat);
       }
+      
+      // 保存聊天元数据
+      _saveChatMetadata(chatId, updatedChat, message);
     } else {
       // 创建新聊天
       // 确定聊天类型和ID
@@ -229,8 +255,35 @@ class ChatProvider extends ChangeNotifier {
       // 添加到列表顶部
       _chats.insert(0, newChat);
       
+      // 保存聊天元数据
+      _saveChatMetadata(chatId, newChat, message);
+      
       // 打印调试信息
       print('创建新聊天: $chatId, 名称: $name');
+    }
+  }
+  
+  // 保存聊天元数据
+  Future<void> _saveChatMetadata(String chatId, Chat chat, Message message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 根据聊天类型保存不同的元数据
+      if (chat.type == ChatType.group) {
+        final groupId = chatId.substring(6); // 移除'group_'前缀
+        await prefs.setString('group_name_$groupId', chat.name);
+        if (chat.avatarUrl != null) {
+          await prefs.setString('group_avatar_$groupId', chat.avatarUrl!);
+        }
+      } else {
+        final userId = chatId.substring(8); // 移除'private_'前缀
+        await prefs.setString('user_name_$userId', chat.name);
+        if (chat.avatarUrl != null) {
+          await prefs.setString('user_avatar_$userId', chat.avatarUrl!);
+        }
+      }
+    } catch (e) {
+      print('保存聊天元数据时出错: $e');
     }
   }
   
@@ -241,34 +294,229 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
     
     try {
-      // 先从本地存储加载消息
+      // 先从本地存储加载消息，作为快速显示的基础
       await _loadMessagesFromStorage();
       
       // 从消息构建聊天列表
       await _loadChatsFromMessages(token);
       
-      // 尝试从API获取聊天列表
-      final response = await http.get(
-        Uri.parse('${ApiConstants.baseUrl}/chats'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token,
-        },
-      );
+      // 从服务器获取所有联系人和群组的聊天记录
+      await _loadAllChatsFromServer(token);
       
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as List;
-        final apiChats = data.map((item) => Chat.fromJson(item)).toList();
-        
-        // 合并API获取的聊天和本地构建的聊天
-        _mergeChats(apiChats);
-      }
+      // 我们已经从本地存储和服务器构建了聊天列表
+      print('已完成聊天列表加载，共 ${_chats.length} 个聊天');
     } catch (e) {
       print('加载聊天列表时发生错误: $e');
       // 如果API调用失败，我们仍然有本地构建的聊天列表
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+  
+  // 从服务器加载所有联系人和群组的聊天记录
+  Future<void> _loadAllChatsFromServer(String token) async {
+    try {
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      
+      // 1. 获取联系人列表
+      print('从服务器获取联系人列表...');
+      final contactsResponse = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/contacts'),
+        headers: {
+          'Authorization': authToken,
+          'Content-Type': 'application/json',
+        },
+      );
+      
+      if (contactsResponse.statusCode == 200) {
+        final contactsData = json.decode(contactsResponse.body);
+        if (contactsData['success'] == true && contactsData['data'] != null) {
+          final contacts = contactsData['data']['contacts'] as List;
+          print('获取到 ${contacts.length} 个联系人');
+          
+          // 2. 为每个联系人加载聊天记录
+          for (final contact in contacts) {
+            final userId = contact['id'];
+            final chatId = 'private_$userId';
+            
+            // 检查这个聊天是否已经存在
+            final existingChatIndex = _chats.indexWhere((chat) => chat.id == chatId);
+            
+            // 如果聊天不存在或者没有消息，从服务器加载
+            if (existingChatIndex == -1 || !_messages.containsKey(chatId) || _messages[chatId]!.isEmpty) {
+              print('从服务器加载联系人 $userId 的聊天记录');
+              
+              try {
+                // 构建查询参数
+                final queryParams = {
+                  'type': 'private',
+                  'receiver_id': userId.toString(),
+                  'limit': '20',
+                  'offset': '0',
+                };
+                
+                // 发送请求
+                final requestUrl = Uri.parse('${ApiConstants.baseUrl}/messages').replace(queryParameters: queryParams);
+                final response = await http.get(
+                  requestUrl,
+                  headers: {
+                    'Authorization': authToken,
+                    'Content-Type': 'application/json',
+                  },
+                );
+                
+                if (response.statusCode == 200 && response.body.isNotEmpty) {
+                  final data = json.decode(response.body) as List;
+                  if (data.isNotEmpty) {
+                    final messages = data.map((item) => Message.fromJson(item)).toList();
+                    
+                    // 添加到消息列表
+                    _messages[chatId] = messages;
+                    
+                    // 创建或更新聊天
+                    final latestMessage = messages.reduce(
+                      (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b
+                    );
+                    
+                    final chat = Chat(
+                      id: chatId,
+                      name: contact['username'] ?? '联系人',
+                      avatarUrl: contact['avatar_url'],
+                      type: ChatType.private,
+                      lastMessage: latestMessage.content,
+                      lastMessageTime: latestMessage.timestamp,
+                      unreadCount: messages.where((m) => !m.read).length,
+                      isOnline: contact['is_online'] ?? false,
+                    );
+                    
+                    if (existingChatIndex >= 0) {
+                      _chats[existingChatIndex] = chat;
+                      print('更新联系人 ${chat.name} 的聊天');
+                    } else {
+                      _chats.add(chat);
+                      print('添加联系人 ${chat.name} 的聊天');
+                    }
+                    
+                    // 保存消息到本地存储
+                    _saveMessagesToStorage();
+                  }
+                } else if (response.statusCode != 404) {
+                  print('获取联系人 $userId 的消息失败: ${response.statusCode}');
+                }
+              } catch (e) {
+                print('加载联系人 $userId 的消息时出错: $e');
+              }
+            }
+          }
+        }
+      } else {
+        print('获取联系人列表失败: ${contactsResponse.statusCode}');
+      }
+      
+      // 3. 获取群组列表并加载群组消息
+      print('从服务器获取群组列表...');
+      final groupsResponse = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/groups'),
+        headers: {
+          'Authorization': authToken,
+          'Content-Type': 'application/json',
+        },
+      );
+      
+      if (groupsResponse.statusCode == 200) {
+        final groupsData = json.decode(groupsResponse.body);
+        if (groupsData is List && groupsData.isNotEmpty) {
+          print('获取到 ${groupsData.length} 个群组');
+          
+          // 为每个群组加载聊天记录
+          for (final group in groupsData) {
+            final groupId = group['id'];
+            final chatId = 'group_$groupId';
+            
+            // 检查这个聊天是否已经存在
+            final existingChatIndex = _chats.indexWhere((chat) => chat.id == chatId);
+            
+            // 如果聊天不存在或者没有消息，从服务器加载
+            if (existingChatIndex == -1 || !_messages.containsKey(chatId) || _messages[chatId]!.isEmpty) {
+              print('从服务器加载群组 $groupId 的聊天记录');
+              
+              try {
+                // 构建查询参数
+                final queryParams = {
+                  'type': 'group',
+                  'group_id': groupId.toString(),
+                  'limit': '20',
+                  'offset': '0',
+                };
+                
+                // 发送请求
+                final requestUrl = Uri.parse('${ApiConstants.baseUrl}/messages').replace(queryParameters: queryParams);
+                final response = await http.get(
+                  requestUrl,
+                  headers: {
+                    'Authorization': authToken,
+                    'Content-Type': 'application/json',
+                  },
+                );
+                
+                if (response.statusCode == 200 && response.body.isNotEmpty) {
+                  final data = json.decode(response.body) as List;
+                  if (data.isNotEmpty) {
+                    final messages = data.map((item) => Message.fromJson(item)).toList();
+                    
+                    // 添加到消息列表
+                    _messages[chatId] = messages;
+                    
+                    // 创建或更新聊天
+                    final latestMessage = messages.reduce(
+                      (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b
+                    );
+                    
+                    final chat = Chat(
+                      id: chatId,
+                      name: group['name'] ?? '群聊',
+                      avatarUrl: group['avatar_url'],
+                      type: ChatType.group,
+                      lastMessage: latestMessage.content,
+                      lastMessageTime: latestMessage.timestamp,
+                      unreadCount: messages.where((m) => !m.read).length,
+                    );
+                    
+                    if (existingChatIndex >= 0) {
+                      _chats[existingChatIndex] = chat;
+                      print('更新群组 ${chat.name} 的聊天');
+                    } else {
+                      _chats.add(chat);
+                      print('添加群组 ${chat.name} 的聊天');
+                    }
+                    
+                    // 保存消息到本地存储
+                    _saveMessagesToStorage();
+                  }
+                } else if (response.statusCode != 404) {
+                  print('获取群组 $groupId 的消息失败: ${response.statusCode}');
+                }
+              } catch (e) {
+                print('加载群组 $groupId 的消息时出错: $e');
+              }
+            }
+          }
+        }
+      } else {
+        print('获取群组列表失败: ${groupsResponse.statusCode}');
+      }
+      
+      // 4. 按最后消息时间排序
+      _chats.sort((a, b) {
+        if (a.lastMessageTime == null) return 1;
+        if (b.lastMessageTime == null) return -1;
+        return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+      });
+      
+    } catch (e) {
+      print('从服务器加载所有聊天记录时出错: $e');
     }
   }
   
@@ -396,6 +644,8 @@ class ChatProvider extends ChangeNotifier {
       final chatType = parts[0];
       final chatTargetId = parts[1];
       
+      print('解析的聊天ID - 类型: $chatType, 目标ID: $chatTargetId');
+      
       // 构建查询参数
       final queryParams = {
         'type': chatType == 'private' ? 'private' : 'group',
@@ -414,6 +664,7 @@ class ChatProvider extends ChangeNotifier {
       final requestUrl = Uri.parse('${ApiConstants.baseUrl}/messages').replace(queryParameters: queryParams);
       print('加载消息请求URL: $requestUrl');
       print('加载消息请求头: Authorization: $authToken');
+      print('加载消息查询参数: $queryParams');
       
       // 发送请求
       final response = await http.get(
@@ -432,19 +683,27 @@ class ChatProvider extends ChangeNotifier {
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as List;
+        print('解析的消息数据: ${data.length} 条消息');
+        
         final messages = data.map((item) => Message.fromJson(item)).toList();
         
         if (offset == 0 || !_messages.containsKey(chatId)) {
           _messages[chatId] = messages;
+          print('替换聊天 $chatId 的消息列表，现有 ${messages.length} 条消息');
         } else {
           _messages[chatId]!.addAll(messages);
+          print('向聊天 $chatId 添加 ${messages.length} 条消息，总计 ${_messages[chatId]!.length} 条');
         }
         
         // 更新未读消息数
         final chatIndex = _chats.indexWhere((chat) => chat.id == chatId);
         if (chatIndex >= 0) {
           _chats[chatIndex] = _chats[chatIndex].copyWith(unreadCount: 0);
+          print('更新聊天 $chatId 的未读消息数为0');
         }
+        
+        // 保存消息到本地存储
+        _saveMessagesToStorage();
         
         // 清除可能存在的错误状态
         _clearError();
@@ -452,15 +711,21 @@ class ChatProvider extends ChangeNotifier {
         // 如果是首次加载且没有找到消息，这是正常情况（新对话）
         if (!_messages.containsKey(chatId)) {
           _messages[chatId] = []; // 初始化为空列表
+          print('初始化聊天 $chatId 的消息列表为空');
         }
         _clearError(); // 确保清除错误状态
       } else {
-        _setError('加载消息失败: ${response.statusCode} - ${response.body}');
+        final errorMsg = '加载消息失败: ${response.statusCode} - ${response.body}';
+        print(errorMsg);
+        _setError(errorMsg);
       }
     } catch (e) {
-      _setError('网络错误，请稍后再试: $e');
+      final errorMsg = '网络错误，请稍后再试: $e';
+      print(errorMsg);
+      _setError(errorMsg);
     } finally {
       _setLoading(false);
+      notifyListeners(); // 确保通知监听器更新UI
     }
   }
   
@@ -883,6 +1148,8 @@ class ChatProvider extends ChangeNotifier {
       // 获取聊天ID列表
       final chatIds = prefs.getStringList('chat_ids') ?? [];
       
+      print('从本地存储加载聊天，找到 ${chatIds.length} 个聊天ID');
+      
       // 清空现有消息
       _messages.clear();
       
@@ -890,15 +1157,177 @@ class ChatProvider extends ChangeNotifier {
       for (final chatId in chatIds) {
         final messageJsonList = prefs.getStringList('messages_$chatId') ?? [];
         if (messageJsonList.isNotEmpty) {
+          print('聊天ID: $chatId 有 ${messageJsonList.length} 条消息');
           _messages[chatId] = messageJsonList
               .map((json) => Message.fromJson(jsonDecode(json)))
               .toList();
+          
+          // 从消息中恢复聊天会话信息
+          if (_messages[chatId]!.isNotEmpty) {
+            final latestMessage = _messages[chatId]!.reduce(
+              (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b
+            );
+            
+            // 确定聊天类型和基本信息
+            final isGroup = chatId.startsWith('group_');
+            String name;
+            String? avatarUrl;
+            
+            if (isGroup) {
+              final groupId = chatId.substring(6); // 移除'group_'前缀
+              name = prefs.getString('group_name_$groupId') ?? '群聊 $groupId';
+              avatarUrl = prefs.getString('group_avatar_$groupId');
+            } else {
+              // 私聊
+              final userId = chatId.substring(8); // 移除'private_'前缀
+              name = prefs.getString('user_name_$userId') ?? latestMessage.senderName ?? '联系人';
+              avatarUrl = prefs.getString('user_avatar_$userId') ?? latestMessage.senderAvatar;
+            }
+            
+            // 创建或更新聊天会话
+            final existingIndex = _chats.indexWhere((chat) => chat.id == chatId);
+            final chat = Chat(
+              id: chatId,
+              name: name,
+              avatarUrl: avatarUrl,
+              type: isGroup ? ChatType.group : ChatType.private,
+              lastMessage: latestMessage.content,
+              lastMessageTime: latestMessage.timestamp,
+              unreadCount: _messages[chatId]!.where((m) => !m.read).length,
+            );
+            
+            if (existingIndex >= 0) {
+              _chats[existingIndex] = chat;
+              print('更新现有聊天: $name');
+            } else {
+              _chats.add(chat);
+              print('添加新聊天: $name');
+            }
+          }
+        } else {
+          print('聊天ID: $chatId 没有消息');
         }
       }
       
-      print('从本地存储加载了 ${_messages.length} 个聊天的消息');
+      // 按最后消息时间排序
+      _chats.sort((a, b) {
+        if (a.lastMessageTime == null) return 1;
+        if (b.lastMessageTime == null) return -1;
+        return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+      });
+      
+      print('从本地存储加载了 ${_messages.length} 个聊天的消息和 ${_chats.length} 个聊天会话');
+      
+      // 确保通知监听器更新UI
+      notifyListeners();
     } catch (e) {
       print('从本地存储加载消息时出错: $e');
+    }
+  }
+
+  // 删除聊天
+  Future<bool> deleteChat(String token, String chatId) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      
+      // 从本地存储中删除聊天记录
+      _messages.remove(chatId);
+      await _saveMessagesToStorage();
+      
+      // 从聊天列表中删除
+      _chats.removeWhere((chat) => chat.id == chatId);
+      notifyListeners();
+      
+      // 尝试从服务器删除聊天记录
+      try {
+        final response = await http.delete(
+          Uri.parse('${ApiConstants.baseUrl}/chats/$chatId'),
+          headers: {
+            'Authorization': authToken,
+            'Content-Type': 'application/json',
+          },
+        );
+        
+        if (response.statusCode != 200 && response.statusCode != 204) {
+          print('服务器删除聊天失败: ${response.statusCode}');
+          // 不中断流程，已经从本地删除了
+        }
+      } catch (e) {
+        print('删除聊天API调用失败: $e');
+        // 不中断流程，已经从本地删除了
+      }
+      
+      _isLoading = false;
+      return true;
+    } catch (e) {
+      _setError('删除聊天失败: $e');
+      _isLoading = false;
+      return false;
+    }
+  }
+  
+  // 标记聊天为已读
+  Future<bool> markChatAsRead(String token, String chatId) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    
+    try {
+      // 确保token包含Bearer前缀
+      final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
+      
+      // 更新本地消息状态
+      if (_messages.containsKey(chatId)) {
+        final updatedMessages = _messages[chatId]!.map((message) {
+          return message.copyWith(read: true);
+        }).toList();
+        
+        _messages[chatId] = updatedMessages;
+      }
+      
+      // 更新聊天列表中的未读计数
+      final chatIndex = _chats.indexWhere((chat) => chat.id == chatId);
+      if (chatIndex >= 0) {
+        _chats[chatIndex] = _chats[chatIndex].copyWith(unreadCount: 0);
+      }
+      
+      // 保存到本地存储
+      await _saveMessagesToStorage();
+      
+      // 通知服务器
+      try {
+        final response = await http.post(
+          Uri.parse('${ApiConstants.baseUrl}/messages/read'),
+          headers: {
+            'Authorization': authToken,
+            'Content-Type': 'application/json',
+          },
+          body: json.encode({
+            'chat_id': chatId,
+          }),
+        );
+        
+        if (response.statusCode != 200) {
+          print('服务器标记已读失败: ${response.statusCode}');
+          // 不中断流程，已经在本地标记了
+        }
+      } catch (e) {
+        print('标记已读API调用失败: $e');
+        // 不中断流程，已经在本地标记了
+      }
+      
+      notifyListeners();
+      _isLoading = false;
+      return true;
+    } catch (e) {
+      _setError('标记聊天为已读失败: $e');
+      _isLoading = false;
+      return false;
     }
   }
 } 

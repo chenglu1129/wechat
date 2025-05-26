@@ -146,6 +146,27 @@ func main() {
 	router.Handle("/messages", api.AuthMiddleware(http.HandlerFunc(messageHandler.SendMessage))).Methods("POST")
 	router.Handle("/messages", api.AuthMiddleware(http.HandlerFunc(messageHandler.GetMessages))).Methods("GET")
 
+	// 添加/chats路由，重定向到/messages端点，以兼容客户端代码
+	router.Handle("/chats", api.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println("收到/chats请求，重定向到/messages")
+		fmt.Println("请求参数:", r.URL.RawQuery)
+		fmt.Println("请求头:", r.Header)
+
+		// 保存原始查询参数
+		originalQuery := r.URL.RawQuery
+
+		// 修改路径
+		r.URL.Path = "/messages"
+
+		// 确保查询参数不丢失
+		if originalQuery != "" {
+			r.URL.RawQuery = originalQuery
+		}
+
+		// 调用消息处理器
+		messageHandler.GetMessages(w, r)
+	}))).Methods("GET")
+
 	// 通知路由（带认证）
 	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.SaveFCMToken))).Methods("POST")
 	router.Handle("/notifications/token", api.AuthMiddleware(http.HandlerFunc(apiHandler.DeleteFCMToken))).Methods("DELETE")

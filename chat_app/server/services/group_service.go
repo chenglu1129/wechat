@@ -83,6 +83,11 @@ func (s *GroupService) GetGroupMembers(groupID int) ([]*models.User, error) {
 	return s.groupMemberRepo.GetMembers(groupID)
 }
 
+// GetGroupAdmins 获取群组管理员
+func (s *GroupService) GetGroupAdmins(groupID int) ([]*models.User, error) {
+	return s.groupMemberRepo.GetAdmins(groupID)
+}
+
 // AddGroupMembers 添加群组成员
 func (s *GroupService) AddGroupMembers(groupID int, userIDs []int) error {
 	for _, userID := range userIDs {

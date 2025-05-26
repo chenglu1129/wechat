@@ -147,9 +147,15 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 
 	// 打印查询参数（仅用于调试）
 	println("GetMessages查询参数:", r.URL.RawQuery)
+	for key, values := range query {
+		for _, value := range values {
+			println("参数:", key, "=", value)
+		}
+	}
 
 	// 获取对话类型（私聊或群组）
 	chatType := query.Get("type")
+	println("聊天类型:", chatType)
 
 	// 获取分页参数
 	limitStr := query.Get("limit")
@@ -172,6 +178,8 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	println("分页参数 - 限制:", limit, "偏移:", offset)
+
 	var messages []*models.Message
 
 	// 根据对话类型获取消息
@@ -179,6 +187,7 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		// 获取对话对象ID
 		receiverID := query.Get("receiver_id")
 		if receiverID == "" {
+			println("错误: 接收者ID为空")
 			http.Error(w, "接收者ID不能为空", http.StatusBadRequest)
 			return
 		}
@@ -193,6 +202,18 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		println("成功获取私聊消息, 消息数量:", len(messages))
+
+		// 打印部分消息内容用于调试
+		if len(messages) > 0 {
+			println("第一条消息:", messages[0].Content)
+			if len(messages) > 1 {
+				println("最后一条消息:", messages[len(messages)-1].Content)
+			}
+		} else {
+			println("没有找到消息记录")
+		}
+
 		// 标记所有消息为已读
 		err = h.messageService.MarkAllMessagesAsRead(receiverID, strconv.Itoa(claims.UserID))
 		if err != nil {
@@ -203,6 +224,7 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		// 获取群组ID
 		groupID := query.Get("group_id")
 		if groupID == "" {
+			println("错误: 群组ID为空")
 			http.Error(w, "群组ID不能为空", http.StatusBadRequest)
 			return
 		}
@@ -216,12 +238,36 @@ func (h *MessageHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		println("成功获取群组消息, 消息数量:", len(messages))
+
+		// 打印部分消息内容用于调试
+		if len(messages) > 0 {
+			println("第一条消息:", messages[0].Content)
+			if len(messages) > 1 {
+				println("最后一条消息:", messages[len(messages)-1].Content)
+			}
+		} else {
+			println("没有找到群组消息记录")
+		}
 	} else {
+		println("错误: 无效的聊天类型:", chatType)
 		http.Error(w, "无效的对话类型", http.StatusBadRequest)
 		return
 	}
 
 	// 返回响应
 	w.Header().Set("Content-Type", "application/json")
+
+	// 打印响应大小
+	responseBytes, err := json.Marshal(messages)
+	if err != nil {
+		println("序列化消息失败:", err.Error())
+		http.Error(w, "序列化消息失败", http.StatusInternalServerError)
+		return
+	}
+	println("响应大小:", len(responseBytes), "字节")
+
+	// 发送响应
 	json.NewEncoder(w).Encode(messages)
 }

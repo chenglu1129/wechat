@@ -6,13 +6,14 @@ import (
 
 // User 表示应用中的用户
 type User struct {
-	ID           int       `json:"id"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`          // 不在JSON中暴露密码哈希
-	AvatarURL    string    `json:"avatar_url"` // 用户头像URL
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           int                    `json:"id"`
+	Username     string                 `json:"username"`
+	Email        string                 `json:"email"`
+	PasswordHash string                 `json:"-"`          // 不在JSON中暴露密码哈希
+	AvatarURL    string                 `json:"avatar_url"` // 用户头像URL
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"` // 额外的元数据
 }
 
 // UserRepository 定义用户相关的数据库操作接口

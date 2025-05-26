@@ -310,9 +310,14 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
             return ContactItem(
               user: contact,
               onTap: () {
+                // 构建聊天ID
+                final chatId = 'private_${contact.id}';
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (ctx) => ChatScreen(user: contact),
+                    builder: (context) => ChatScreen(
+                      user: contact,
+                      chatId: chatId,
+                    ),
                   ),
                 );
               },
@@ -474,7 +479,10 @@ class _ContactsScreenState extends State<ContactsScreen> with SingleTickerProvid
               Navigator.pop(ctx);
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => ChatScreen(user: contact),
+                  builder: (context) => ChatScreen(
+                    user: contact,
+                    chatId: 'private_${contact.id}',
+                  ),
                 ),
               );
             },
