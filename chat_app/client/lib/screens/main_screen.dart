@@ -61,8 +61,8 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         // 加载群组列表
         await groupProvider.loadUserGroups();
         
-        // 启动模拟服务
-        _startMockService();
+        // 不再启动模拟服务，使用真实API
+        // _startMockService();
       } catch (e) {
         print('初始化应用时发生错误: $e');
         // 显示错误提示，但不中断流程

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/group.dart';
 import '../models/user.dart';
 import '../services/group_service.dart';
+import '../utils/mock_group_service.dart';
 
 class GroupProvider with ChangeNotifier {
   final GroupService _groupService;
@@ -39,9 +40,15 @@ class GroupProvider with ChangeNotifier {
     _clearError();
     
     try {
+      print('开始加载用户群组列表...');
       _groups = await _groupService.getUserGroups();
+      print('成功加载了 ${_groups.length} 个群组');
+      for (var group in _groups) {
+        print('群组: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+      }
       notifyListeners();
     } catch (e) {
+      print('加载群组列表失败: $e');
       _setError('加载群组列表失败: $e');
     } finally {
       _setLoading(false);
@@ -66,6 +73,10 @@ class GroupProvider with ChangeNotifier {
       
       // 将新创建的群组添加到列表中
       _groups.insert(0, group);
+      
+      // 立即重新加载群组列表确保持久化
+      await loadUserGroups();
+      
       notifyListeners();
       
       return group;

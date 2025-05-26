@@ -14,6 +14,7 @@ import '../providers/group_provider.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/avatar_widget.dart';
 import '../utils/app_routes.dart';
+import '../widgets/message_input.dart';
 
 class GroupChatScreen extends StatefulWidget {
   final Group group;
@@ -29,6 +30,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
   bool _isAttachmentMenuOpen = false;
+  bool _isInit = false;
 
   @override
   void initState() {
@@ -51,6 +53,15 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     chatProvider.clearCurrentChat();
     
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    if (!_isInit) {
+      _loadGroupMessages();
+      _isInit = true;
+    }
+    super.didChangeDependencies();
   }
 
   // 加载群组信息
@@ -97,9 +108,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   // 发送消息
-  Future<void> _sendMessage() async {
-    final message = _messageController.text.trim();
-    if (message.isEmpty) return;
+  Future<void> _sendMessage(String content) async {
+    if (content.isEmpty) return;
     
     _messageController.clear();
     
@@ -110,7 +120,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       if (authProvider.user != null) {
         await chatProvider.sendGroupMessage(
           groupId: widget.group.id,
-          content: message,
+          content: content,
           type: MessageType.text,
         );
         
@@ -192,6 +202,43 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
           curve: Curves.easeOut,
         );
       });
+    }
+  }
+
+  Future<void> _loadGroupMessages() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+
+    if (authProvider.token != null) {
+      try {
+        print('加载群组 ${widget.group.id} 的消息...');
+        
+        // 设置当前聊天ID
+        final chatId = 'group_${widget.group.id}';
+        chatProvider.setCurrentChat(chatId);
+        
+        // 加载群组消息
+        await chatProvider.loadGroupMessages(authProvider.token!, widget.group.id);
+        print('群组消息加载完成');
+        
+        // 滚动到底部
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_scrollController.hasClients) {
+            _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      } catch (e) {
+        print('加载群组消息失败: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('加载消息失败: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -285,48 +332,14 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
                         controller: _scrollController,
                         padding: const EdgeInsets.all(8),
                         itemCount: messages.length,
-                        itemBuilder: (ctx, index) {
-                          final message = messages[index];
-                          final isMe = currentUser != null && 
-                              message.senderId == currentUser.id.toString();
+                        itemBuilder: (ctx, i) {
+                          final message = messages[i];
+                          final isSentByMe = message.senderId == currentUser?.id.toString();
                           
-                          // 获取发送者信息
-                          String senderName = message.senderName ?? '未知用户';
-                          
-                          // 计算时间显示
-                          String timeText = '';
-                          if (message.timestamp != null) {
-                            if (index == 0 || _shouldShowDate(messages[index - 1], message)) {
-                              timeText = DateFormat('yyyy-MM-dd HH:mm').format(message.timestamp!);
-                            } else {
-                              // 如果与上一条消息时间相差超过5分钟，显示时间
-                              final prevTimestamp = messages[index - 1].timestamp;
-                              if (prevTimestamp != null && 
-                                  message.timestamp!.difference(prevTimestamp).inMinutes > 5) {
-                                timeText = DateFormat('HH:mm').format(message.timestamp!);
-                              }
-                            }
-                          }
-                          
-                          return Column(
-                            children: [
-                              if (timeText.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  child: Text(
-                                    timeText,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                ),
-                              MessageBubble(
-                                message: message,
-                                isMe: isMe,
-                                senderName: isMe ? null : senderName,
-                              ),
-                            ],
+                          return MessageBubble(
+                            message: message,
+                            isMe: isSentByMe,
+                            senderName: message.senderName,
                           );
                         },
                       ),
@@ -360,43 +373,8 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
             ),
           
           // 消息输入框
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            color: Colors.white,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () {
-                    setState(() {
-                      _isAttachmentMenuOpen = !_isAttachmentMenuOpen;
-                    });
-                  },
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: '输入消息...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(20)),
-                      ),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                    ),
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _sendMessage,
-                ),
-              ],
-            ),
+          MessageInput(
+            onSendMessage: (content) => _sendMessage(content),
           ),
         ],
       ),

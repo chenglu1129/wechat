@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/message.dart';
 import '../models/chat.dart';
@@ -235,43 +236,66 @@ class ChatProvider extends ChangeNotifier {
   
   // 加载聊天列表
   Future<void> loadChats(String token) async {
-    _setLoading(true);
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
     
     try {
-      // 尝试从/chats接口获取聊天列表
-      print('尝试从/chats接口获取聊天列表...');
+      // 先从本地存储加载消息
+      await _loadMessagesFromStorage();
+      
+      // 从消息构建聊天列表
+      await _loadChatsFromMessages(token);
+      
+      // 尝试从API获取聊天列表
       final response = await http.get(
         Uri.parse('${ApiConstants.baseUrl}/chats'),
         headers: {
-          'Authorization': token.startsWith('Bearer ') ? token : 'Bearer $token',
           'Content-Type': 'application/json',
+          'Authorization': token,
         },
       );
       
-      print('获取聊天列表响应状态码: ${response.statusCode}');
-      
       if (response.statusCode == 200) {
-        // 如果接口存在且返回成功，解析数据
         final data = json.decode(response.body) as List;
-        _chats.clear();
-        _chats.addAll(data.map((item) => Chat.fromJson(item)).toList());
-        print('成功从/chats接口获取聊天列表，共${_chats.length}个聊天');
-      } else if (response.statusCode == 404) {
-        // 如果接口不存在，使用备用方案
-        print('/chats接口不存在，使用备用方案...');
-        await _loadChatsFromMessages(token);
-      } else {
-        print('加载聊天列表失败: ${response.statusCode} - ${response.body}');
-        _setError('加载聊天列表失败: ${response.statusCode}');
+        final apiChats = data.map((item) => Chat.fromJson(item)).toList();
+        
+        // 合并API获取的聊天和本地构建的聊天
+        _mergeChats(apiChats);
       }
     } catch (e) {
       print('加载聊天列表时发生错误: $e');
-      // 出现错误，尝试备用方案
-      print('尝试使用备用方案...');
-      await _loadChatsFromMessages(token);
+      // 如果API调用失败，我们仍然有本地构建的聊天列表
     } finally {
-      _setLoading(false);
+      _isLoading = false;
+      notifyListeners();
     }
+  }
+  
+  // 合并API获取的聊天和本地构建的聊天
+  void _mergeChats(List<Chat> apiChats) {
+    for (final apiChat in apiChats) {
+      final existingIndex = _chats.indexWhere((chat) => chat.id == apiChat.id);
+      if (existingIndex >= 0) {
+        // 更新现有聊天的信息，但保留本地的未读计数和最后消息
+        final existingChat = _chats[existingIndex];
+        _chats[existingIndex] = apiChat.copyWith(
+          lastMessage: existingChat.lastMessage ?? apiChat.lastMessage,
+          lastMessageTime: existingChat.lastMessageTime ?? apiChat.lastMessageTime,
+          unreadCount: existingChat.unreadCount,
+        );
+      } else {
+        // 添加新聊天
+        _chats.add(apiChat);
+      }
+    }
+    
+    // 按最后消息时间排序
+    _chats.sort((a, b) {
+      if (a.lastMessageTime == null) return 1;
+      if (b.lastMessageTime == null) return -1;
+      return b.lastMessageTime!.compareTo(a.lastMessageTime!);
+    });
   }
   
   // 备用方案：从消息历史构建聊天列表
@@ -441,23 +465,27 @@ class ChatProvider extends ChangeNotifier {
   }
   
   // 发送消息
-  Future<bool> sendMessage(String token, String content, {String? receiverId, String? groupId}) async {
+  Future<bool> sendMessage(
+    String token,
+    String content,
+    [String? receiverId]
+  ) async {
     try {
       // 确保token包含Bearer前缀
       final authToken = token.startsWith('Bearer ') ? token : 'Bearer $token';
       print('发送消息使用的令牌: $authToken');
       
       // 验证参数
-      if ((receiverId == null || receiverId.isEmpty) && (groupId == null || groupId.isEmpty)) {
-        print('错误: 发送消息时receiverId和groupId都为空');
+      final String actualReceiverId = receiverId ?? '';
+      if (actualReceiverId.isEmpty) {
+        print('错误: 发送消息时receiverId为空');
         _setError('发送消息失败: 接收者ID不能为空');
         return false;
       }
       
       // 准备请求体
       final requestBody = {
-        'receiver_id': receiverId,
-        'group_id': groupId,
+        'receiver_id': actualReceiverId,
         'type': 'text',
         'content': content,
       };
@@ -492,8 +520,7 @@ class ChatProvider extends ChangeNotifier {
         } else {
           // 对于私聊，聊天ID应该始终使用对方的ID
           // 如果当前用户是发送者，则使用接收者ID；如果当前用户是接收者，则使用发送者ID
-          final otherUserId = message.senderId == receiverId ? message.receiverId : receiverId;
-          chatId = 'private_$otherUserId';
+          chatId = 'private_$actualReceiverId';
         }
         print('消息的聊天ID: $chatId');
         
@@ -508,6 +535,9 @@ class ChatProvider extends ChangeNotifier {
         
         // 更新聊天列表
         _updateChatList(chatId, message);
+        
+        // 保存消息到本地存储
+        _saveMessagesToStorage();
         
         notifyListeners();
         return true;
@@ -664,6 +694,11 @@ class ChatProvider extends ChangeNotifier {
       final chatId = 'group_$groupId';
       _currentChatId = chatId;
       
+      // 确保消息列表存在
+      if (!_messages.containsKey(chatId)) {
+        _messages[chatId] = [];
+      }
+      
       final response = await http.get(
         Uri.parse('${ApiConstants.baseUrl}/messages?type=group&group_id=$groupId&limit=$limit&offset=$offset'),
         headers: {
@@ -677,29 +712,28 @@ class ChatProvider extends ChangeNotifier {
         final messages = data.map((item) => Message.fromJson(item)).toList();
         
         // 更新消息列表
-        if (!_messages.containsKey(chatId)) {
-          _messages[chatId] = [];
-        }
-        
         if (offset == 0) {
           _messages[chatId] = messages;
         } else {
           _messages[chatId]!.addAll(messages);
         }
         
+        // 保存消息到本地存储
+        _saveMessagesToStorage();
+        
         notifyListeners();
       } else if (response.statusCode == 404) {
         // 如果没有消息，初始化为空列表
-        if (!_messages.containsKey(chatId)) {
+        if (offset == 0) {
           _messages[chatId] = [];
         }
       } else {
         throw Exception('加载群组消息失败: ${response.body}');
       }
     } catch (e) {
+      print('加载群组消息失败: $e');
       _error = e.toString();
       notifyListeners();
-      rethrow;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -736,6 +770,9 @@ class ChatProvider extends ChangeNotifier {
       
       // 更新聊天列表
       _updateChatList(chatId, message);
+      
+      // 保存消息到本地存储
+      _saveMessagesToStorage();
       
       notifyListeners();
       
@@ -788,6 +825,61 @@ class ChatProvider extends ChangeNotifier {
       notifyListeners();
       print('发送群组媒体消息错误: $e');
       // 不抛出异常，让用户界面继续工作
+    }
+  }
+
+  // 保存消息到本地存储
+  Future<void> _saveMessagesToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 将消息转换为可存储的格式
+      final Map<String, List<String>> serializedMessages = {};
+      for (final entry in _messages.entries) {
+        serializedMessages[entry.key] = entry.value
+            .map((message) => jsonEncode(message.toJson()))
+            .toList();
+      }
+      
+      // 将消息保存到本地存储
+      for (final entry in serializedMessages.entries) {
+        await prefs.setStringList('messages_${entry.key}', entry.value);
+      }
+      
+      // 保存聊天ID列表，用于加载时恢复
+      final chatIds = _messages.keys.toList();
+      await prefs.setStringList('chat_ids', chatIds);
+      
+      print('已保存 ${_messages.length} 个聊天的消息到本地存储');
+    } catch (e) {
+      print('保存消息到本地存储时出错: $e');
+    }
+  }
+  
+  // 从本地存储加载消息
+  Future<void> _loadMessagesFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // 获取聊天ID列表
+      final chatIds = prefs.getStringList('chat_ids') ?? [];
+      
+      // 清空现有消息
+      _messages.clear();
+      
+      // 加载每个聊天的消息
+      for (final chatId in chatIds) {
+        final messageJsonList = prefs.getStringList('messages_$chatId') ?? [];
+        if (messageJsonList.isNotEmpty) {
+          _messages[chatId] = messageJsonList
+              .map((json) => Message.fromJson(jsonDecode(json)))
+              .toList();
+        }
+      }
+      
+      print('从本地存储加载了 ${_messages.length} 个聊天的消息');
+    } catch (e) {
+      print('从本地存储加载消息时出错: $e');
     }
   }
 } 

@@ -22,6 +22,17 @@ class MockGroupService {
   Future<List<Group>> _getGroups() async {
     final prefs = await SharedPreferences.getInstance();
     final groupsJson = prefs.getStringList(_groupsKey) ?? [];
+    print('从本地存储加载群组: ${groupsJson.length}个');
+    if (groupsJson.isNotEmpty) {
+      for (var json in groupsJson) {
+        try {
+          final group = Group.fromJson(jsonDecode(json));
+          print('加载群组: ID=${group.id}, 名称=${group.name}');
+        } catch (e) {
+          print('解析群组JSON失败: $e');
+        }
+      }
+    }
     return groupsJson.map((json) => Group.fromJson(jsonDecode(json))).toList();
   }
   
@@ -29,6 +40,10 @@ class MockGroupService {
   Future<void> _saveGroups(List<Group> groups) async {
     final prefs = await SharedPreferences.getInstance();
     final groupsJson = groups.map((group) => jsonEncode(group.toJson())).toList();
+    print('保存群组到本地存储: ${groups.length}个');
+    for (var group in groups) {
+      print('保存群组: ID=${group.id}, 名称=${group.name}');
+    }
     await prefs.setStringList(_groupsKey, groupsJson);
   }
   
@@ -52,9 +67,6 @@ class MockGroupService {
     required List<int> memberIds,
     File? avatarFile,
   }) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(seconds: 1));
-    
     // 生成随机ID
     final id = DateTime.now().millisecondsSinceEpoch.toString();
     
@@ -123,14 +135,15 @@ class MockGroupService {
     // 保存群组成员
     await _saveGroupMembers(members);
     
+    // 打印调试信息
+    print('创建群组成功: ID=${group.id}, 名称=${group.name}, 成员数=${group.memberCount}');
+    print('当前存储的群组数量: ${groups.length}');
+    
     return group;
   }
   
   // 获取群组信息
   Future<Group> getGroupInfo(String groupId) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 500));
-    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -145,9 +158,6 @@ class MockGroupService {
   
   // 获取用户加入的群组列表
   Future<List<Group>> getUserGroups() async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 800));
-    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -162,9 +172,6 @@ class MockGroupService {
     String? announcement,
     File? avatarFile,
   }) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(seconds: 1));
-    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -207,9 +214,6 @@ class MockGroupService {
   
   // 获取群组成员列表
   Future<List<GroupMember>> getGroupMembers(String groupId) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 700));
-    
     // 获取群组成员列表
     final allMembers = await _getGroupMembers();
     
@@ -221,9 +225,6 @@ class MockGroupService {
   
   // 邀请用户加入群组
   Future<void> inviteMembers(String groupId, List<int> userIds) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(seconds: 1));
-    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);
@@ -272,9 +273,6 @@ class MockGroupService {
   
   // 移除群组成员
   Future<void> removeMember(String groupId, int userId) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 800));
-    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);
@@ -311,9 +309,6 @@ class MockGroupService {
   
   // 退出群组
   Future<void> leaveGroup(String groupId) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 800));
-    
     // 获取当前用户ID（假设为1）
     final currentUserId = 1;
     
@@ -323,9 +318,6 @@ class MockGroupService {
   
   // 解散群组
   Future<void> disbandGroup(String groupId) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(seconds: 1));
-    
     // 获取群组列表
     final groups = await _getGroups();
     
@@ -347,9 +339,6 @@ class MockGroupService {
   
   // 设置/取消管理员
   Future<void> setAdmin(String groupId, int userId, bool isAdmin) async {
-    // 模拟网络延迟
-    await Future.delayed(const Duration(milliseconds: 800));
-    
     // 获取群组
     final groups = await _getGroups();
     final groupIndex = groups.indexWhere((g) => g.id == groupId);

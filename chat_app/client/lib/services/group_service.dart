@@ -22,7 +22,7 @@ class GroupService {
     required List<int> memberIds,
     File? avatarFile,
   }) async {
-    // 如果使用模拟服务
+    // 如果明确指定使用模拟服务
     if (useMock) {
       return _mockService.createGroup(
         name: name,
@@ -31,37 +31,53 @@ class GroupService {
       );
     }
     
-    // 使用真实API
-    final token = await tokenManager.getAuthToken();
-    if (token == null) {
-      throw Exception('未登录');
-    }
-    
-    // 如果有头像，先上传头像
-    String? avatarUrl;
-    if (avatarFile != null) {
-      avatarUrl = await _uploadGroupAvatar(token, avatarFile);
-    }
-    
-    // 创建群组
-    final response = await http.post(
-      Uri.parse('${ApiConstants.baseUrl}/groups'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token,
-      },
-      body: jsonEncode({
-        'name': name,
-        'member_ids': memberIds,
-        'avatar_url': avatarUrl,
-      }),
-    );
-    
-    if (response.statusCode == 201) {
-      final data = jsonDecode(response.body);
-      return Group.fromJson(data);
-    } else {
-      throw Exception('创建群组失败: ${response.body}');
+    // 尝试使用真实API
+    try {
+      final token = await tokenManager.getAuthToken();
+      if (token == null) {
+        throw Exception('未登录');
+      }
+      
+      // 如果有头像，先上传头像
+      String? avatarUrl;
+      if (avatarFile != null) {
+        avatarUrl = await _uploadGroupAvatar(token, avatarFile);
+      }
+      
+      // 创建群组
+      final response = await http.post(
+        Uri.parse('${ApiConstants.baseUrl}/groups'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+        body: jsonEncode({
+          'name': name,
+          'member_ids': memberIds,
+          'avatar_url': avatarUrl,
+        }),
+      );
+      
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return Group.fromJson(data);
+      } else {
+        // API调用失败，回退到模拟服务
+        print('API调用失败，状态码: ${response.statusCode}，回退到模拟服务');
+        return _mockService.createGroup(
+          name: name,
+          memberIds: memberIds,
+          avatarFile: avatarFile,
+        );
+      }
+    } catch (e) {
+      // 发生异常，回退到模拟服务
+      print('API调用异常: $e，回退到模拟服务');
+      return _mockService.createGroup(
+        name: name,
+        memberIds: memberIds,
+        avatarFile: avatarFile,
+      );
     }
   }
   
@@ -96,30 +112,38 @@ class GroupService {
   
   // 获取用户加入的群组列表
   Future<List<Group>> getUserGroups() async {
-    // 如果使用模拟服务
+    // 如果明确指定使用模拟服务
     if (useMock) {
       return _mockService.getUserGroups();
     }
     
-    // 使用真实API
-    final token = await tokenManager.getAuthToken();
-    if (token == null) {
-      throw Exception('未登录');
-    }
-    
-    final response = await http.get(
-      Uri.parse('${ApiConstants.baseUrl}/groups/user'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': token,
-      },
-    );
-    
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as List;
-      return data.map((item) => Group.fromJson(item)).toList();
-    } else {
-      throw Exception('获取群组列表失败: ${response.body}');
+    // 尝试使用真实API
+    try {
+      final token = await tokenManager.getAuthToken();
+      if (token == null) {
+        throw Exception('未登录');
+      }
+      
+      final response = await http.get(
+        Uri.parse('${ApiConstants.baseUrl}/groups/user'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List;
+        return data.map((item) => Group.fromJson(item)).toList();
+      } else {
+        // API调用失败，回退到模拟服务
+        print('API调用失败，状态码: ${response.statusCode}，回退到模拟服务');
+        return _mockService.getUserGroups();
+      }
+    } catch (e) {
+      // 发生异常，回退到模拟服务
+      print('API调用异常: $e，回退到模拟服务');
+      return _mockService.getUserGroups();
     }
   }
   

@@ -192,7 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
       chatProvider.sendMessage(
         authProvider.token!,
         message,
-        receiverId: widget.user.id.toString(),
+        widget.user.id.toString(),
       ).then((success) {
         if (success) {
           _messageController.clear();
@@ -345,7 +345,7 @@ class _ChatScreenState extends State<ChatScreen> {
       chatProvider.sendMessage(
         authProvider.token!,
         text,
-        receiverId: _contact!.id.toString(),
+        _contact!.id.toString(),
       ).then((success) {
         if (success) {
           print('消息发送成功');
